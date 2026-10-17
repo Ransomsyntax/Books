@@ -5,6 +5,8 @@ from . import api
 urlpatterns = [
     path('me/', api.me),
     path('organization/', api.organization),
+    path('attachments/', api.attachments_view),
+    path('attachments/<int:pk>/', api.attachments_view),
     path('dashboard/', api.dashboard_view),
     path('activity/', api.activity_view),
     path('search/', api.search_view),

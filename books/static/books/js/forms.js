@@ -901,18 +901,22 @@ async function docForm(kind, id) {
   const [parties, items, rec] = await Promise.all([api(`lookup/${inv ? 'customers' : 'vendors'}/`), api('lookup/items/'), id ? api(`${kind}/${id}/`) : null]);
   if (!parties.length) { toast(`Create a ${pk} first.`, 'err'); return; }
   const itemOpts = [['', '— Custom line —'], ...items.map(i => [i.id, i.name + (i.sku ? ' (' + i.sku + ')' : '')])];
-  const r = rec || { date: APP.today, lines: [{}], place_of_supply: '' };
+  const r = rec || { date: APP.today, lines: [{}], place_of_supply: '', notes: APP.org.notes_default || 'Thanks for your business.', terms: APP.org.terms_default || 'Due on Receipt', order_number: '' };
   const byId = Object.fromEntries(items.map(i => [String(i.id), i]));
   const row = l => `<tr class="ln"><td><select class="in l-item" aria-label="Item">${opts(itemOpts, l.item)}</select><input class="in l-desc" aria-label="Description" placeholder="Description" maxlength="500" value="${esc(l.description || '')}"></td><td><input class="in l-hsn" aria-label="HSN/SAC" maxlength="10" value="${esc(l.hsn_sac || '')}"></td><td><input class="in l-qty" type="number" step="0.001" min="0" aria-label="Quantity" value="${esc(l.quantity || 1)}"></td><td><input class="in l-rate" type="number" step="0.01" min="0" aria-label="Rate" value="${esc(l.rate == null ? '' : l.rate)}"></td><td><input class="in l-disc" type="number" step="0.01" min="0" max="100" aria-label="Discount %" value="${esc(l.discount_percent || 0)}"></td><td><select class="in l-gst" aria-label="GST rate">${opts(GST_SLABS.map(x => [x, x + '%']), l.gst_rate != null ? num(l.gst_rate) : 18)}</select></td><td class="r l-amt">—</td><td><button type="button" class="btn ic" data-rm aria-label="Remove line">×</button></td></tr>`;
   const partyId = r.party_id || '';
   const due0 = r.due_date || '';
+  const pendingFiles = [];
+
   formModal({
     title: `${id ? 'Edit' : 'New'} ${inv ? 'invoice' : 'bill'}${id ? ' ' + r.number : ''}`, wide: true,
-    actions: [{ label: 'Save as draft', value: 'draft' }, { label: inv ? 'Save & send' : 'Save & approve', value: 'post', primary: true }],
+    actions: id ? [{ label: 'Update ' + (inv ? 'Invoice' : 'Bill'), value: 'update', primary: true }, { label: 'Save as draft', value: 'draft' }] : [{ label: 'Save as draft', value: 'draft' }, { label: inv ? 'Save & send' : 'Save & approve', value: 'post', primary: true }],
     body: `<div class="fgrid">${[
       fld({ name: pk, label: inv ? 'Customer' : 'Vendor', type: 'select', req: 1, opts: [['', 'Select…'], ...parties.map(p => [p.id, p.name])], value: partyId }),
       fld({ name: 'place_of_supply', label: 'Place of supply', type: 'select', opts: STATES, value: r.place_of_supply || APP.org.state, help: 'Same state as your organization → CGST + SGST; otherwise IGST.' }),
-      fld({ name: 'date', label: 'Date', type: 'date', req: 1, value: r.date }), fld({ name: 'due_date', label: 'Due date', type: 'date', value: due0 }),
+      fld({ name: 'date', label: 'Date', type: 'date', req: 1, value: r.date }),
+      fld({ name: 'due_date', label: 'Due date', type: 'date', value: due0 }),
+      fld({ name: 'order_number', label: 'Order Number', value: r.order_number || '', ph: 'e.g. 653248543' }),
       inv ? '' : fld({ name: 'vendor_ref', label: 'Vendor reference', value: r.vendor_ref }),
     ].join('')}</div>
     <h3 style="margin:16px 0 6px;font-size:14px">Line items</h3>
@@ -920,7 +924,18 @@ async function docForm(kind, id) {
     <div class="er" data-err="lines" role="alert"></div>
     <button type="button" class="btn" data-add style="margin-top:8px">+ Add line</button>
     <div class="tot" aria-live="polite"><div><span>Taxable value</span><b data-t="sub">₹0.00</b></div><div data-t-row="cgst"><span>CGST</span><b data-t="cgst">₹0.00</b></div><div data-t-row="sgst"><span>SGST</span><b data-t="sgst">₹0.00</b></div><div data-t-row="igst"><span>IGST</span><b data-t="igst">₹0.00</b></div><div class="gt"><span>Total</span><b data-t="total">₹0.00</b></div></div>
-    <div class="fgrid" style="margin-top:12px">${fld({ name: 'notes', label: 'Notes', type: 'textarea', value: r.notes, col: 'c2' })}${inv ? fld({ name: 'terms', label: 'Terms & conditions', type: 'textarea', value: r.terms, col: 'c2' }) : ''}</div>`,
+    <div class="fgrid" style="margin-top:12px">${fld({ name: 'notes', label: 'Notes', type: 'textarea', value: r.notes != null ? r.notes : (APP.org.notes_default || 'Thanks for your business.'), col: 'c2' })}${inv ? fld({ name: 'terms', label: 'Terms & conditions', type: 'textarea', value: r.terms != null ? r.terms : (APP.org.terms_default || 'Due on Receipt'), col: 'c2' }) : ''}</div>
+    <div style="margin-top:14px;padding:12px;border:1px solid var(--bd-glass);border-radius:8px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <label style="font-weight:600;font-size:13px;display:flex;align-items:center;gap:6px;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+          Attached Files
+        </label>
+        <input type="file" id="doc-file-input" multiple style="display:none">
+        <button type="button" class="btn" onclick="this.previousElementSibling.click()">+ Attach File</button>
+      </div>
+      <div id="doc-attach-badges" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+    </div>`,
     onReady: (form, m) => {
       const tb = $('#lines', form);
       let dueTouched = !!due0;
@@ -961,16 +976,77 @@ async function docForm(kind, id) {
         const rm = e.target.closest('[data-rm]');
         if (rm) { if ($$('tr.ln', form).length > 1) { rm.closest('tr').remove(); m.markDirty(); calc(); } else toast('At least one line is required.', 'err'); }
       });
+
+      // Render existing attachments if editing
+      const attachBox = $('#doc-attach-badges', form);
+      const renderAttach = () => {
+        let h = '';
+        if (r.attachments && r.attachments.length) {
+          h += r.attachments.map(a => `<div class="attach-file-badge"><span>📎 ${esc(a.filename)} (${fmtBytes(a.file_size)})</span><button type="button" data-del-att="${a.id}" title="Remove file">×</button></div>`).join('');
+        }
+        h += pendingFiles.map((f, i) => `<div class="attach-file-badge" style="border-style:dashed;"><span>📎 ${esc(f.name)} (${fmtBytes(f.size)}) <small style="color:var(--accent);">new</small></span><button type="button" data-rem-pen="${i}" title="Remove file">×</button></div>`).join('');
+        if (!h) h = '<span class="sub" style="font-size:12px;">No files attached yet.</span>';
+        attachBox.innerHTML = h;
+      };
+      renderAttach();
+
+      attachBox.addEventListener('click', async e => {
+        const delBtn = e.target.closest('[data-del-att]');
+        if (delBtn) {
+          const attId = delBtn.dataset.delAtt;
+          try {
+            await api(`attachments/${attId}/`, { method: 'DELETE' });
+            r.attachments = (r.attachments || []).filter(a => String(a.id) !== String(attId));
+            renderAttach();
+            toast('Attachment removed');
+          } catch (err) { toast(err.message, 'err'); }
+          return;
+        }
+        const remBtn = e.target.closest('[data-rem-pen]');
+        if (remBtn) {
+          pendingFiles.splice(Number(remBtn.dataset.remPen), 1);
+          renderAttach();
+        }
+      });
+
+      const fileIn = $('#doc-file-input', form);
+      if (fileIn) {
+        fileIn.addEventListener('change', () => {
+          Array.from(fileIn.files).forEach(f => {
+            const reader = new FileReader();
+            reader.onload = ev => {
+              pendingFiles.push({ name: f.name, size: f.size, type: f.type, data: ev.target.result });
+              renderAttach();
+              m.markDirty();
+            };
+            reader.readAsDataURL(f);
+          });
+          fileIn.value = '';
+        });
+      }
+
       if (!due0) setDue();
       calc();
     },
     onSubmit: async (d, action, form) => {
+      d.force = true;
       d.lines = $$('tr.ln', form).map(tr => ({ item: $('.l-item', tr).value || null, description: $('.l-desc', tr).value, hsn_sac: $('.l-hsn', tr).value, quantity: $('.l-qty', tr).value, rate: $('.l-rate', tr).value, discount_percent: $('.l-disc', tr).value || 0, gst_rate: $('.l-gst', tr).value }));
       const saved = await api(id ? `${kind}/${id}/` : `${kind}/`, { method: id ? 'PUT' : 'POST', body: d });
+
+      // Save pending attachments
+      for (const pf of pendingFiles) {
+        try {
+          await api('attachments/', {
+            method: 'POST',
+            body: { entity_type: inv ? 'invoice' : 'bill', entity_id: saved.id, filename: pf.name, file_size: pf.size, mime_type: pf.type, file_data: pf.data }
+          });
+        } catch (e) { console.error('Attachment upload error:', e); }
+      }
+
       if (action === 'post') {
         try { await api(`${kind}/${saved.id}/${inv ? 'send' : 'approve'}/`, { method: 'POST', body: {} }); toast(`${saved.number} ${inv ? 'sent' : 'approved'}`); }
         catch (e) { toast(`${saved.number} saved as draft, but could not be ${inv ? 'sent' : 'approved'}: ${e.message}`, 'err'); }
-      } else toast(`${saved.number} saved as draft`);
+      } else toast(`${saved.number} ${id ? 'updated' : 'saved'}`);
       refresh();
     },
   });
@@ -1069,13 +1145,86 @@ async function adjustForm(preItem) {
 function orgForm() {
   const o = APP.org;
   formModal({
-    title: 'Organization settings',
-    body: `<div class="fgrid">${[
-      fld({ name: 'name', label: 'Organization name', req: 1, value: o.name, col: 'c2' }),
-      fld({ name: 'state', label: 'Home state', type: 'select', req: 1, opts: STATES, value: o.state, help: 'Used to decide CGST/SGST (same state) vs IGST.' }),
-      fld({ name: 'gstin', label: 'GSTIN', value: o.gstin }), fld({ name: 'opening_cash', label: 'Opening cash & bank balance (₹)', type: 'number', value: o.opening_cash, attrs: 'step="0.01"' }),
-      fld({ name: 'address', label: 'Address', type: 'textarea', value: o.address, col: 'c2' }),
-    ].join('')}</div>`,
-    onSubmit: async d => { APP.org = await api('organization/', { method: 'PUT', body: d }); applyOrg(); toast('Organization updated'); refresh(); },
+    title: 'Organization Profile & Settings', wide: true,
+    body: `<div class="tabs-sub" style="display:flex;gap:8px;margin-bottom:16px;border-bottom:1px solid var(--bd-glass);padding-bottom:8px;">
+      <button type="button" class="btn p org-tab-btn" data-otab="general">Company Profile</button>
+      <button type="button" class="btn org-tab-btn" data-otab="template">Invoice & Bill Template</button>
+    </div>
+    <div id="otab-general" class="otab-pane">
+      <div class="fgrid">
+        ${fld({ name: 'name', label: 'Company / Organization Name', req: 1, value: o.name, col: 'c2' })}
+        ${fld({ name: 'company_id', label: 'Company ID / CIN', value: o.company_id || '', ph: 'e.g. U62090KL2026PTC103900' })}
+        ${fld({ name: 'gstin', label: 'GSTIN', value: o.gstin || '', ph: '32AANCC9298C1ZE' })}
+        ${fld({ name: 'state', label: 'Home State', type: 'select', req: 1, opts: STATES, value: o.state })}
+        ${fld({ name: 'address', label: 'Address / Building / Street', type: 'textarea', value: o.address, col: 'c2' })}
+        ${fld({ name: 'city', label: 'City', value: o.city || 'Kottayam' })}
+        ${fld({ name: 'pincode', label: 'Pincode', value: o.pincode || '686003' })}
+        ${fld({ name: 'country', label: 'Country', value: o.country || 'India' })}
+        ${fld({ name: 'phone', label: 'Phone', value: o.phone || '91-9847017737' })}
+        ${fld({ name: 'email', label: 'Email', type: 'email', value: o.email || 'admin@convosis.com' })}
+        ${fld({ name: 'website', label: 'Website', value: o.website || 'www.convosis.com' })}
+        ${fld({ name: 'opening_cash', label: 'Opening Cash & Bank Balance (₹)', type: 'number', value: o.opening_cash, attrs: 'step="0.01"' })}
+      </div>
+      <div style="margin-top:14px;padding:14px;border:1px solid var(--bd-glass);border-radius:8px;display:flex;align-items:center;gap:18px;">
+        <div style="width:72px;height:72px;border-radius:8px;border:1px solid var(--bd-glass);background:#fff;display:grid;place-items:center;overflow:hidden;padding:4px;">
+          <img id="org-logo-preview" src="${esc(o.logo_data || '/static/books/img/convosis-logo.png')}" alt="Logo" style="max-width:100%;max-height:100%;object-fit:contain;">
+        </div>
+        <div style="flex:1;">
+          <label style="font-weight:600;font-size:13px;display:block;margin-bottom:4px;">Company Logo</label>
+          <input type="file" id="org-logo-file" accept="image/*" style="display:none">
+          <input type="hidden" name="logo_data" id="org-logo-input" value="${esc(o.logo_data || '/static/books/img/convosis-logo.png')}">
+          <button type="button" class="btn" onclick="this.previousElementSibling.previousElementSibling.click()">Upload Logo</button>
+          <button type="button" class="btn" id="reset-logo-btn" style="margin-left:6px;">Reset to Default</button>
+          <div class="hp" style="margin-top:4px;">Recommended size: 240x80px PNG or JPG with transparent/white background.</div>
+        </div>
+      </div>
+    </div>
+    <div id="otab-template" class="otab-pane" style="display:none;">
+      <div class="fgrid">
+        ${fld({ name: 'template_theme', label: 'Default Template Style', type: 'select', opts: [['convosis', 'Convosis Classic (Standard Boxed)'], ['modern', 'Modern Ribbon (Dark Bar & Corner Ribbon)'], ['executive', 'Executive Indigo (Top Banner)'], ['minimal', 'Minimalist (Clean Lines)']], value: o.template_theme || 'convosis', col: 'c2' })}
+        ${fld({ name: 'template_color', label: 'Template Accent Color', type: 'select', opts: [['#1877f2', 'Convosis Blue (#1877f2)'], ['#0d6efd', 'Royal Blue (#0d6efd)'], ['#10b981', 'Emerald Green (#10b981)'], ['#ff8a00', 'Vibrant Orange (#ff8a00)'], ['#6366f1', 'Indigo (#6366f1)'], ['#1e293b', 'Dark Slate (#1e293b)']], value: o.template_color || '#1877f2' })}
+        ${fld({ name: 'signature_title', label: 'Signature Line Title', value: o.signature_title || 'Authorized Signature' })}
+        ${fld({ name: 'terms_default', label: 'Default Terms & Conditions', type: 'textarea', value: o.terms_default || 'Due on Receipt', col: 'c2' })}
+        ${fld({ name: 'notes_default', label: 'Default Notes', type: 'textarea', value: o.notes_default || 'Thanks for your business.', col: 'c2' })}
+      </div>
+    </div>`,
+    onReady: form => {
+      $$('.org-tab-btn', form).forEach(btn => {
+        btn.addEventListener('click', () => {
+          $$('.org-tab-btn', form).forEach(b => b.classList.remove('p'));
+          btn.classList.add('p');
+          const tab = btn.dataset.otab;
+          $('#otab-general', form).style.display = tab === 'general' ? '' : 'none';
+          $('#otab-template', form).style.display = tab === 'template' ? '' : 'none';
+        });
+      });
+      const fIn = $('#org-logo-file', form);
+      if (fIn) {
+        fIn.addEventListener('change', () => {
+          const file = fIn.files[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = e => {
+            $('#org-logo-preview', form).src = e.target.result;
+            $('#org-logo-input', form).value = e.target.result;
+          };
+          reader.readAsDataURL(file);
+        });
+      }
+      const resBtn = $('#reset-logo-btn', form);
+      if (resBtn) {
+        resBtn.addEventListener('click', () => {
+          $('#org-logo-preview', form).src = '/static/books/img/convosis-logo.png';
+          $('#org-logo-input', form).value = '/static/books/img/convosis-logo.png';
+        });
+      }
+    },
+    onSubmit: async d => {
+      APP.org = await api('organization/', { method: 'PUT', body: d });
+      applyOrg();
+      toast('Organization settings updated');
+      refresh();
+    },
   });
 }
+

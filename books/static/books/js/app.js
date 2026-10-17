@@ -17,8 +17,8 @@ const NAV = [
 ];
 const ROUTES = {
   'home/dashboard': r => renderDashboard(r), 'home/getting-started': gettingStarted, 'home/recent-updates': recentUpdates,
-  'sales/customers': r => listPage(r, LISTS.customers), 'sales/invoices': r => listPage(r, LISTS.invoices), 'sales/payments-received': r => listPage(r, LISTS['payments-received']),
-  'purchases/vendors': r => listPage(r, LISTS.vendors), 'purchases/bills': r => listPage(r, LISTS.bills), 'purchases/payments-made': r => listPage(r, LISTS['payments-made']),
+  'sales/customers': r => listPage(r, LISTS.customers), 'sales/invoices': r => docMasterDetail(r, 'invoices'), 'sales/payments-received': r => listPage(r, LISTS['payments-received']),
+  'purchases/vendors': r => listPage(r, LISTS.vendors), 'purchases/bills': r => docMasterDetail(r, 'bills'), 'purchases/payments-made': r => listPage(r, LISTS['payments-made']),
   'items/items-services': r => listPage(r, LISTS.items),
   'inventory/inventory-summary': r => listPage(r, LISTS.inventory), 'inventory/stock-adjustments': r => listPage(r, LISTS.adjustments), 'inventory/stock-movement': r => listPage(r, LISTS.movements),
 };
@@ -79,7 +79,7 @@ const QC = [['Customer', () => partyForm('customers')], ['Vendor', () => partyFo
 $('#qcm').innerHTML = QC.map((q, i) => `<button class="mi" type="button" data-q="${i}">New ${esc(q[0].toLowerCase())}</button>`).join('');
 
 function openRecord(t, id) {
-  const M = { customer: ['sales/customers', () => partyDetail('customers', id)], vendor: ['purchases/vendors', () => partyDetail('vendors', id)], invoice: ['sales/invoices', () => docDetail('invoices', id)], bill: ['purchases/bills', () => docDetail('bills', id)], item: ['items/items-services', () => itemForm(id)] };
+  const M = { customer: ['sales/customers', () => partyDetail('customers', id)], vendor: ['purchases/vendors', () => partyDetail('vendors', id)], invoice: ['sales/invoices', () => docMasterDetail($('#pg'), 'invoices', id)], bill: ['purchases/bills', () => docMasterDetail($('#pg'), 'bills', id)], item: ['items/items-services', () => itemForm(id)] };
   const [r, fn] = M[t];
   if (location.hash !== '#/' + r) location.hash = '#/' + r;
   fn().catch(e => toast(e.message, 'err'));

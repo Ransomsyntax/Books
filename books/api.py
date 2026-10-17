@@ -15,7 +15,7 @@ from django.utils import timezone
 from . import services
 from .calc import GST_SLABS, compute, is_intra_state, q2
 from .cleaning import GSTIN_RE, PAN_RE, ApiError, Cleaner
-from .models import (Bill, BillAllocation, BillLine, Customer, Invoice, InvoiceLine, Item, MODES,
+from .models import (Attachment, Bill, BillAllocation, BillLine, Customer, Invoice, InvoiceLine, Item, MODES,
                      Organization, PaymentMade, PaymentReceived, ReceivedAllocation, StockMovement, Vendor)
 from .services import bill_qs, invoice_qs, next_number, paid_expr
 
@@ -482,15 +482,34 @@ class DocResource(Resource):
 
     def row(self, o):
         paid = q2(o.paid_sum)
+        etype = 'invoice' if isinstance(o, Invoice) else 'bill'
+        att_count = Attachment.objects.filter(entity_type=etype, entity_id=o.pk).count()
         return {'id': o.pk, 'number': o.number, 'party_id': self.party(o).pk, 'party': self.party(o).name,
                 'date': o.date, 'due_date': o.due_date, 'place_of_supply': o.place_of_supply,
+                'order_number': getattr(o, 'order_number', '') or '', 'attachment_count': att_count,
                 'status': display_status(o, self.posted, timezone.localdate()), 'raw_status': o.status,
                 'subtotal': o.subtotal, 'total': o.total, 'paid': paid, 'balance': o.total - paid if o.status == self.posted else Z}
 
     def detail(self, o):
         r = self.row(o)
+        etype = 'invoice' if isinstance(o, Invoice) else 'bill'
+        party = self.party(o)
+        attachments = [
+            {'id': a.pk, 'filename': a.filename, 'file_size': a.file_size, 'mime_type': a.mime_type,
+             'url': a.file.url if a.file else a.file_data, 'file_data': a.file_data, 'created_at': a.created_at}
+            for a in Attachment.objects.filter(entity_type=etype, entity_id=o.pk)
+        ]
+        party_info = {
+            'id': party.pk, 'name': party.name, 'company': party.company,
+            'email': party.email, 'phone': party.phone, 'gstin': party.gstin,
+            'billing_address': party.billing_address, 'state': party.state,
+        }
+        if hasattr(party, 'shipping_address'):
+            party_info['shipping_address'] = party.shipping_address
         r.update({'cgst': o.cgst, 'sgst': o.sgst, 'igst': o.igst, 'notes': o.notes,
+                  'order_number': getattr(o, 'order_number', '') or '',
                   'intra_state': is_intra_state(o.place_of_supply, Organization.get().state),
+                  'attachments': attachments, 'party_details': party_info,
                   'lines': [{'id': l.pk, 'item': l.item_id, 'description': l.description, 'hsn_sac': l.hsn_sac,
                              'quantity': l.quantity, 'rate': l.rate, 'discount_percent': l.discount_percent,
                              'gst_rate': l.gst_rate, 'taxable': l.taxable, 'tax_amount': l.tax_amount,
@@ -550,14 +569,33 @@ class DocResource(Resource):
         return obj
 
     def update(self, obj, data, user):
+        is_inv = isinstance(obj, Invoice)
         if obj.status != 'draft':
-            raise ApiError(409, 'Only drafts can be edited. Void this document and create a new one.')
+            if not data.get('force'):
+                raise ApiError(409, 'Only drafts can be edited. Void this document and create a new one.')
+            if is_inv and obj.status == 'sent':
+                services.apply_stock(obj, +1, 'sale_void', user)
+            elif not is_inv and obj.status == 'open':
+                services.apply_stock(obj, -1, 'purchase_void', user)
+            head, lines = self.parse(data)
+            self.write(obj, head, lines)
+            if is_inv and obj.status == 'sent':
+                services.apply_stock(obj, -1, 'sale', user)
+            elif not is_inv and obj.status == 'open':
+                services.apply_stock(obj, +1, 'purchase', user)
+            return
         head, lines = self.parse(data)
         self.write(obj, head, lines)
 
     def destroy(self, obj):
+        is_inv = isinstance(obj, Invoice)
         if obj.status != 'draft':
-            raise ApiError(409, 'Only drafts can be deleted. Void posted documents instead.')
+            if is_inv and obj.status == 'sent':
+                services.apply_stock(obj, +1, 'sale_void', None)
+            elif not is_inv and obj.status == 'open':
+                services.apply_stock(obj, -1, 'purchase_void', None)
+            obj.allocations.all().delete()
+        Attachment.objects.filter(entity_type='invoice' if is_inv else 'bill', entity_id=obj.pk).delete()
         obj.delete()
 
 
@@ -570,10 +608,10 @@ class InvoiceResource(DocResource):
                 ('Status', 'status'), ('Taxable', 'subtotal'), ('Total', 'total'), ('Paid', 'paid'), ('Balance', 'balance')]
 
     def extra_clean(self, c):
-        return {'terms': c.text('terms', max_len=2000)}
+        return {'terms': c.text('terms', max_len=2000), 'order_number': c.text('order_number', max_len=60)}
 
     def extra_detail(self, o):
-        return {'terms': o.terms}
+        return {'terms': o.terms, 'order_number': o.order_number}
 
     def action(self, request, obj, name):
         if name == 'send':
@@ -593,10 +631,10 @@ class BillResource(DocResource):
                 ('Status', 'status'), ('Taxable', 'subtotal'), ('Total', 'total'), ('Paid', 'paid'), ('Balance', 'balance')]
 
     def extra_clean(self, c):
-        return {'vendor_ref': c.text('vendor_ref', max_len=60)}
+        return {'vendor_ref': c.text('vendor_ref', max_len=60), 'order_number': c.text('order_number', max_len=60)}
 
     def extra_detail(self, o):
-        return {'vendor_ref': o.vendor_ref}
+        return {'vendor_ref': o.vendor_ref, 'order_number': o.order_number}
 
     def action(self, request, obj, name):
         if name == 'approve':
@@ -802,7 +840,26 @@ def action(request, name, pk, act):
 
 # ====================================================================== misc endpoints
 def org_json(o):
-    return {'name': o.name, 'gstin': o.gstin, 'state': o.state, 'address': o.address, 'opening_cash': o.opening_cash}
+    return {
+        'name': o.name,
+        'company_id': o.company_id,
+        'gstin': o.gstin,
+        'state': o.state,
+        'address': o.address,
+        'city': o.city,
+        'pincode': o.pincode,
+        'country': o.country,
+        'phone': o.phone,
+        'email': o.email,
+        'website': o.website,
+        'logo_data': o.logo_data or '/static/books/img/convosis-logo.png',
+        'template_theme': o.template_theme or 'convosis',
+        'template_color': o.template_color or '#1877f2',
+        'signature_title': o.signature_title or 'Authorized Signature',
+        'notes_default': o.notes_default or 'Thanks for your business.',
+        'terms_default': o.terms_default or 'Due on Receipt',
+        'opening_cash': o.opening_cash,
+    }
 
 
 @api_view
@@ -824,14 +881,102 @@ def organization(request):
     if request.method not in ('PUT', 'PATCH'):
         raise ApiError(405, 'Method not allowed.')
     c = Cleaner(body(request))
-    out = {'name': c.text('name', True, 200), 'state': c.text('state', True, 60), 'address': c.text('address', max_len=1000),
-           'gstin': c.text('gstin', max_len=15, upper=True, pattern=GSTIN_RE, pattern_msg='Enter a valid 15-character GSTIN.'),
-           'opening_cash': c.number('opening_cash', lo=Decimal('-999999999'), hi=Decimal('999999999'))}
+    out = {
+        'name': c.text('name', True, 200),
+        'company_id': c.text('company_id', max_len=100),
+        'state': c.text('state', True, 60),
+        'address': c.text('address', max_len=1000),
+        'city': c.text('city', max_len=100),
+        'pincode': c.text('pincode', max_len=20),
+        'country': c.text('country', max_len=100),
+        'phone': c.text('phone', max_len=50),
+        'email': c.text('email', max_len=254),
+        'website': c.text('website', max_len=200),
+        'gstin': c.text('gstin', max_len=15, upper=True, pattern=GSTIN_RE, pattern_msg='Enter a valid 15-character GSTIN.'),
+        'opening_cash': c.number('opening_cash', lo=Decimal('-999999999'), hi=Decimal('999999999')),
+        'template_theme': c.text('template_theme', max_len=50),
+        'template_color': c.text('template_color', max_len=30),
+        'signature_title': c.text('signature_title', max_len=100),
+        'notes_default': c.text('notes_default', max_len=2000),
+        'terms_default': c.text('terms_default', max_len=2000),
+    }
     c.done()
+    d = body(request)
+    if 'logo_data' in d:
+        out['logo_data'] = d['logo_data']
     for k, v in out.items():
         setattr(org, k, v)
     org.save()
     return j(org_json(org))
+
+
+@api_view
+def attachments_view(request, pk=None):
+    if request.method == 'GET':
+        if pk:
+            att = Attachment.objects.filter(pk=pk).first()
+            if not att:
+                raise ApiError(404, 'Attachment not found.')
+            return j({'id': att.pk, 'entity_type': att.entity_type, 'entity_id': att.entity_id,
+                      'filename': att.filename, 'file_size': att.file_size, 'mime_type': att.mime_type,
+                      'url': att.file.url if att.file else att.file_data, 'file_data': att.file_data,
+                      'created_at': att.created_at})
+        etype = request.GET.get('entity_type', '').strip()
+        eid = request.GET.get('entity_id', '').strip()
+        qs = Attachment.objects.all()
+        if etype:
+            qs = qs.filter(entity_type=etype)
+        if eid and eid.isdigit():
+            qs = qs.filter(entity_id=int(eid))
+        return j([
+            {'id': a.pk, 'entity_type': a.entity_type, 'entity_id': a.entity_id,
+             'filename': a.filename, 'file_size': a.file_size, 'mime_type': a.mime_type,
+             'url': a.file.url if a.file else a.file_data, 'file_data': a.file_data,
+             'created_at': a.created_at} for a in qs
+        ])
+    if request.method == 'POST':
+        if request.content_type and 'multipart/form-data' in request.content_type:
+            f = request.FILES.get('file')
+            etype = request.POST.get('entity_type', 'invoice')
+            eid = int(request.POST.get('entity_id') or 0)
+            if not f:
+                raise ApiError(400, 'File is required.')
+            att = Attachment.objects.create(
+                entity_type=etype, entity_id=eid, file=f,
+                filename=f.name, file_size=f.size, mime_type=getattr(f, 'content_type', ''),
+                created_by=request.user
+            )
+            return j({'id': att.pk, 'filename': att.filename, 'file_size': att.file_size,
+                      'url': att.file.url if att.file else '', 'mime_type': att.mime_type}, 201)
+        else:
+            d = body(request)
+            c = Cleaner(d)
+            etype = c.text('entity_type', required=True, max_len=40)
+            eid = c.integer('entity_id', required=True, lo=0)
+            fname = c.text('filename', required=True, max_len=255)
+            fsize = c.integer('file_size', default=0, lo=0)
+            fdata = d.get('file_data', '')
+            mtype = c.text('mime_type', max_len=100)
+            c.done()
+            att = Attachment.objects.create(
+                entity_type=etype, entity_id=eid, filename=fname, file_size=fsize,
+                file_data=fdata, mime_type=mtype, created_by=request.user
+            )
+            return j({'id': att.pk, 'filename': att.filename, 'file_size': att.file_size,
+                      'file_data': att.file_data, 'url': att.file_data, 'mime_type': att.mime_type}, 201)
+    if request.method == 'DELETE':
+        if not pk:
+            raise ApiError(400, 'Attachment ID required.')
+        att = Attachment.objects.filter(pk=pk).first()
+        if att:
+            if att.file:
+                try:
+                    att.file.delete(save=False)
+                except Exception:
+                    pass
+            att.delete()
+        return HttpResponse(status=204)
+    raise ApiError(405, 'Method not allowed.')
 
 
 @api_view

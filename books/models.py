@@ -9,10 +9,23 @@ QTY = {'max_digits': 14, 'decimal_places': 3}
 
 class Organization(models.Model):
     """Single-tenant company profile (always pk=1)."""
-    name = models.CharField(max_length=200, default='Convosis Technologies Private Limited')
-    gstin = models.CharField(max_length=15, blank=True)
+    name = models.CharField(max_length=200, default='Convosis Technologies Pvt Ltd')
+    company_id = models.CharField(max_length=100, blank=True, default='U62090KL2026PTC103900', help_text='CIN / Registration number')
+    gstin = models.CharField(max_length=15, blank=True, default='32AANCC9298C1ZE')
     state = models.CharField(max_length=60, default='Kerala', help_text='Home state; drives CGST/SGST vs IGST.')
-    address = models.TextField(blank=True)
+    address = models.TextField(blank=True, default='Technolodge Phase II\nKMC 24/222, Anugraha Medical Complex Building')
+    city = models.CharField(max_length=100, blank=True, default='Kottayam')
+    pincode = models.CharField(max_length=20, blank=True, default='686003')
+    country = models.CharField(max_length=100, blank=True, default='India')
+    phone = models.CharField(max_length=50, blank=True, default='91-9847017737')
+    email = models.EmailField(blank=True, default='admin@convosis.com')
+    website = models.CharField(max_length=200, blank=True, default='www.convosis.com')
+    logo_data = models.TextField(blank=True, default='/static/books/img/convosis-logo.png')
+    template_theme = models.CharField(max_length=50, blank=True, default='convosis')
+    template_color = models.CharField(max_length=30, blank=True, default='#1877f2')
+    signature_title = models.CharField(max_length=100, blank=True, default='Authorized Signature')
+    notes_default = models.TextField(blank=True, default='Thanks for your business.')
+    terms_default = models.TextField(blank=True, default='Due on Receipt')
     opening_cash = models.DecimalField(default=Decimal('0.00'), **MONEY)
 
     def save(self, *args, **kwargs):
@@ -107,6 +120,7 @@ class Document(models.Model):
     sgst = models.DecimalField(default=Decimal('0.00'), **MONEY)
     igst = models.DecimalField(default=Decimal('0.00'), **MONEY)
     total = models.DecimalField(default=Decimal('0.00'), **MONEY)
+    order_number = models.CharField(max_length=60, blank=True, default='')
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -219,3 +233,22 @@ class StockMovement(models.Model):
 
     class Meta:
         ordering = ['-date', '-id']
+
+
+class Attachment(models.Model):
+    entity_type = models.CharField(max_length=40, db_index=True)  # 'invoice', 'bill', 'customer', 'vendor', 'item'
+    entity_id = models.PositiveIntegerField(db_index=True)
+    file = models.FileField(upload_to='attachments/%Y/%m/', blank=True, null=True)
+    file_data = models.TextField(blank=True, default='')
+    filename = models.CharField(max_length=255)
+    file_size = models.PositiveIntegerField(default=0)
+    mime_type = models.CharField(max_length=100, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.filename} ({self.entity_type} #{self.entity_id})'
+
