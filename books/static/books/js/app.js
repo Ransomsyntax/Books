@@ -74,9 +74,33 @@ function applyOrg() {
 }
 
 /* menus */
-const closePops = () => $$('.pop.on').forEach(p => p.classList.remove('on'));
+const closePops = () => {
+  $$('.pop.on').forEach(p => { p.classList.remove('on'); p.style.display = ''; });
+  $$('.user-menu-wrap.open').forEach(w => w.classList.remove('open'));
+};
 const QC = [['Customer', () => partyForm('customers')], ['Vendor', () => partyForm('vendors')], ['Invoice', () => docForm('invoices')], ['Bill', () => docForm('bills')], ['Payment received', () => paymentForm('payments-received')], ['Payment made', () => paymentForm('payments-made')], ['Item', () => itemForm()], ['Stock adjustment', () => adjustForm()]];
 $('#qcm').innerHTML = QC.map((q, i) => `<button class="mi" type="button" data-q="${i}">New ${esc(q[0].toLowerCase())}</button>`).join('');
+
+(function initUserMenuHover() {
+  const wrap = $('#userMenuWrapper') || $('#um')?.closest('.user-menu-wrap') || $('#um')?.closest('.rel');
+  const menu = $('#umm');
+  if (!wrap || !menu) return;
+  let timer = null;
+
+  wrap.addEventListener('mouseenter', () => {
+    clearTimeout(timer);
+    menu.classList.add('on');
+    wrap.classList.add('open');
+  });
+
+  wrap.addEventListener('mouseleave', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      menu.classList.remove('on');
+      wrap.classList.remove('open');
+    }, 180);
+  });
+})();
 
 function openRecord(t, id) {
   const M = { customer: ['sales/customers', () => partyDetail('customers', id)], vendor: ['purchases/vendors', () => partyDetail('vendors', id)], invoice: ['sales/invoices', () => docMasterDetail($('#pg'), 'invoices', id)], bill: ['purchases/bills', () => docMasterDetail($('#pg'), 'bills', id)], item: ['items/items-services', () => itemForm(id)] };
@@ -87,7 +111,19 @@ function openRecord(t, id) {
 
 document.addEventListener('click', async e => {
   const t = e.target;
-  const tog = (btn, pop) => { if (!t.closest(btn)) return false; const on = $(pop).classList.contains('on'); closePops(); if (!on) $(pop).classList.add('on'); return true; };
+  const tog = (btn, pop) => {
+    if (!t.closest(btn)) return false;
+    const p = $(pop);
+    if (!p) return false;
+    const on = p.classList.contains('on');
+    closePops();
+    if (!on) {
+      p.classList.add('on');
+      const w = p.closest('.user-menu-wrap');
+      if (w) w.classList.add('open');
+    }
+    return true;
+  };
   if (tog('#qc', '#qcm') || tog('#um', '#umm')) return;
   const q = t.closest('[data-q]');
   if (q) { closePops(); QC[q.dataset.q][1]().catch(err => toast(err.message, 'err')); return; }
