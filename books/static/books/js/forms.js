@@ -1205,8 +1205,25 @@ function orgForm() {
           if (!file) return;
           const reader = new FileReader();
           reader.onload = e => {
-            $('#org-logo-preview', form).src = e.target.result;
-            $('#org-logo-input', form).value = e.target.result;
+            const imgObj = new Image();
+            imgObj.onload = () => {
+              const maxW = 600, maxH = 240;
+              let w = imgObj.width, h = imgObj.height;
+              if (w > maxW || h > maxH) {
+                const ratio = Math.min(maxW / w, maxH / h);
+                w = Math.round(w * ratio);
+                h = Math.round(h * ratio);
+              }
+              const canvas = document.createElement('canvas');
+              canvas.width = w;
+              canvas.height = h;
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(imgObj, 0, 0, w, h);
+              const dataUrl = canvas.toDataURL('image/png');
+              $('#org-logo-preview', form).src = dataUrl;
+              $('#org-logo-input', form).value = dataUrl;
+            };
+            imgObj.src = e.target.result;
           };
           reader.readAsDataURL(file);
         });

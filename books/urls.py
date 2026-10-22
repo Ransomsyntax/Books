@@ -10,6 +10,7 @@ urlpatterns = [
     path('dashboard/', api.dashboard_view),
     path('activity/', api.activity_view),
     path('search/', api.search_view),
+    path('health/', api.health_view),
     path('lookup/<slug:name>/', api.lookup),
     path('<slug:name>/', api.collection),
     path('<slug:name>/<int:pk>/', api.item),

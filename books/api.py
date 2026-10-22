@@ -1029,3 +1029,8 @@ def search_view(request):
     for o in Item.objects.filter(Q(name__icontains=q) | Q(sku__icontains=q))[:5]:
         out.append({'type': 'item', 'id': o.pk, 'label': o.name, 'sub': f'Item · {o.sku}'})
     return j(out)
+
+
+def health_view(request):
+    return JsonResponse({'status': 'ok', 'timestamp': timezone.now().isoformat()})
+
