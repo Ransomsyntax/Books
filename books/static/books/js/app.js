@@ -102,6 +102,14 @@ $('#qcm').innerHTML = QC.map((q, i) => `<button class="mi" type="button" data-q=
   });
 })();
 
+// Mobile touch event support: instant tap outside to close dropdowns
+document.addEventListener('touchstart', e => {
+  const t = e.target;
+  if (!t.closest('.pop') && !t.closest('#um') && !t.closest('#qc') && !t.closest('#notifBtn') && !t.closest('#orgbtn')) {
+    closePops();
+  }
+}, { passive: true });
+
 function openRecord(t, id) {
   const M = { customer: ['sales/customers', () => partyDetail('customers', id)], vendor: ['purchases/vendors', () => partyDetail('vendors', id)], invoice: ['sales/invoices', () => docMasterDetail($('#pg'), 'invoices', id)], bill: ['purchases/bills', () => docMasterDetail($('#pg'), 'bills', id)], item: ['items/items-services', () => itemForm(id)] };
   const [r, fn] = M[t];
