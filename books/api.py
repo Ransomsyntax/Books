@@ -204,7 +204,7 @@ def party_stats(kind, ids):
 
 class PartyResource(Resource):
     kind = ''
-    search_fields = ('name', 'company', 'email', 'phone', 'gstin')
+    search_fields = ('name', 'company', 'email', 'phone', 'mobile', 'gstin', 'pan', 'first_name', 'last_name')
     orderings = {'name': 'name', 'state': 'state', 'created': 'created_at'}
     default_ordering = ('name',)
 
@@ -220,17 +220,100 @@ class PartyResource(Resource):
     def clean(self, data):
         c = Cleaner(data)
         out = {
-            'name': c.text('name', True, 200), 'company': c.text('company', max_len=200),
+            'name': c.text('name', True, 200),
+            'party_type': c.choice('party_type', ['business', 'individual'], 'business'),
+            'salutation': c.text('salutation', max_len=20),
+            'first_name': c.text('first_name', max_len=100),
+            'last_name': c.text('last_name', max_len=100),
+            'company': c.text('company', max_len=200),
             'contact_person': c.text('contact_person', max_len=120),
-            'email': c.text('email', max_len=254, email=True), 'phone': c.text('phone', max_len=20, phone=True),
-            'billing_address': c.text('billing_address', max_len=1000), 'state': c.text('state', max_len=60),
+            'email': c.text('email', max_len=254, email=True),
+            'phone': c.text('phone', max_len=30, phone=True),
+            'mobile': c.text('mobile', max_len=30),
+            'language': c.text('language', max_len=30, default='English') or 'English',
+            'gst_treatment': c.text('gst_treatment', max_len=50, default='registered_regular') or 'registered_regular',
+            'state': c.text('state', max_len=60),
             'gstin': c.text('gstin', max_len=15, upper=True, pattern=GSTIN_RE, pattern_msg='Enter a valid 15-character GSTIN.'),
             'pan': c.text('pan', max_len=10, upper=True, pattern=PAN_RE, pattern_msg='Enter a valid 10-character PAN.'),
+            'tax_preference': c.choice('tax_preference', ['taxable', 'exempt'], 'taxable'),
+            'currency': c.text('currency', max_len=10, default='INR') or 'INR',
+            'opening_balance': c.number('opening_balance', default=Decimal('0.00')),
             'payment_terms': c.integer('payment_terms', 0, 365, 30),
-            'notes': c.text('notes', max_len=2000), 'active': c.boolean('active', True),
+            'payment_terms_label': c.text('payment_terms_label', max_len=50, default='Due on Receipt') or 'Due on Receipt',
+            'enable_portal': c.boolean('enable_portal', False),
+
+            'billing_attention': c.text('billing_attention', max_len=150),
+            'billing_country': c.text('billing_country', max_len=100, default='India') or 'India',
+            'billing_address_1': c.text('billing_address_1', max_len=255),
+            'billing_address_2': c.text('billing_address_2', max_len=255),
+            'billing_city': c.text('billing_city', max_len=100),
+            'billing_state': c.text('billing_state', max_len=60),
+            'billing_pincode': c.text('billing_pincode', max_len=20),
+            'billing_phone': c.text('billing_phone', max_len=30),
+            'billing_fax': c.text('billing_fax', max_len=50),
+            'billing_address': c.text('billing_address', max_len=1000),
+
+            'shipping_attention': c.text('shipping_attention', max_len=150),
+            'shipping_country': c.text('shipping_country', max_len=100, default='India') or 'India',
+            'shipping_address_1': c.text('shipping_address_1', max_len=255),
+            'shipping_address_2': c.text('shipping_address_2', max_len=255),
+            'shipping_city': c.text('shipping_city', max_len=100),
+            'shipping_state': c.text('shipping_state', max_len=60),
+            'shipping_pincode': c.text('shipping_pincode', max_len=20),
+            'shipping_phone': c.text('shipping_phone', max_len=30),
+            'shipping_fax': c.text('shipping_fax', max_len=50),
+            'shipping_address': c.text('shipping_address', max_len=1000),
+
+            'remarks': c.text('remarks', max_len=2000),
+            'notes': c.text('notes', max_len=2000),
+            'active': c.boolean('active', True),
         }
         out.update(self.extra(c))
         c.done()
+
+        # Derive contact_person if empty
+        if not out.get('contact_person') and (out.get('first_name') or out.get('last_name')):
+            fn = out.get('first_name') or ''
+            ln = out.get('last_name') or ''
+            sal = out.get('salutation') or ''
+            out['contact_person'] = f"{sal} {fn} {ln}".strip()
+
+        # Derive state from billing_state if empty
+        if not out.get('state') and out.get('billing_state'):
+            out['state'] = out['billing_state']
+
+        # Auto-compile billing_address if empty
+        if not out.get('billing_address'):
+            b_parts = [out.get('billing_attention'), out.get('billing_address_1'), out.get('billing_address_2'),
+                       out.get('billing_city'), out.get('billing_state'), out.get('billing_pincode'), out.get('billing_country')]
+            out['billing_address'] = ', '.join(p for p in b_parts if p)
+
+        # Auto-compile shipping_address if empty
+        if not out.get('shipping_address'):
+            s_parts = [out.get('shipping_attention'), out.get('shipping_address_1'), out.get('shipping_address_2'),
+                       out.get('shipping_city'), out.get('shipping_state'), out.get('shipping_pincode'), out.get('shipping_country')]
+            out['shipping_address'] = ', '.join(p for p in s_parts if p)
+
+        # Process contact_persons list
+        raw_cp = data.get('contact_persons')
+        if isinstance(raw_cp, list):
+            cleaned_cp = []
+            for item in raw_cp:
+                if isinstance(item, dict):
+                    cleaned_cp.append({
+                        'salutation': str(item.get('salutation') or '')[:20],
+                        'first_name': str(item.get('first_name') or '')[:100],
+                        'last_name': str(item.get('last_name') or '')[:100],
+                        'email': str(item.get('email') or '')[:254],
+                        'phone': str(item.get('phone') or item.get('work_phone') or '')[:30],
+                        'mobile': str(item.get('mobile') or '')[:30],
+                    })
+            out['contact_persons'] = cleaned_cp
+
+        raw_cf = data.get('custom_fields')
+        if isinstance(raw_cf, dict):
+            out['custom_fields'] = {str(k)[:60]: str(v)[:200] for k, v in raw_cf.items()}
+
         return out
 
     def create(self, data, user):
@@ -246,15 +329,60 @@ class PartyResource(Resource):
         return [self.row(o, stats[o.pk]) for o in objs]
 
     def detail(self, o):
-        return self.row(o, party_stats(self.kind, [o.pk])[o.pk])
+        r = self.row(o, party_stats(self.kind, [o.pk])[o.pk])
+        etype = 'customer' if self.kind == 'customer' else 'vendor'
+        r.update({
+            'party_type': o.party_type,
+            'salutation': o.salutation,
+            'first_name': o.first_name,
+            'last_name': o.last_name,
+            'mobile': o.mobile,
+            'language': o.language,
+            'gst_treatment': o.gst_treatment,
+            'tax_preference': o.tax_preference,
+            'currency': o.currency,
+            'opening_balance': o.opening_balance,
+            'payment_terms_label': o.payment_terms_label,
+            'enable_portal': o.enable_portal,
+
+            'billing_attention': o.billing_attention,
+            'billing_country': o.billing_country,
+            'billing_address_1': o.billing_address_1,
+            'billing_address_2': o.billing_address_2,
+            'billing_city': o.billing_city,
+            'billing_state': o.billing_state,
+            'billing_pincode': o.billing_pincode,
+            'billing_phone': o.billing_phone,
+            'billing_fax': o.billing_fax,
+
+            'shipping_attention': o.shipping_attention,
+            'shipping_country': o.shipping_country,
+            'shipping_address_1': o.shipping_address_1,
+            'shipping_address_2': o.shipping_address_2,
+            'shipping_city': o.shipping_city,
+            'shipping_state': o.shipping_state,
+            'shipping_pincode': o.shipping_pincode,
+            'shipping_phone': o.shipping_phone,
+            'shipping_fax': o.shipping_fax,
+            'shipping_address': o.shipping_address,
+
+            'contact_persons': o.contact_persons or [],
+            'custom_fields': o.custom_fields or {},
+            'remarks': o.remarks,
+            'attachments': [
+                {'id': a.pk, 'filename': a.filename, 'file_size': a.file_size, 'mime_type': a.mime_type,
+                 'url': a.file.url if a.file else a.file_data, 'file_data': a.file_data, 'created_at': a.created_at}
+                for a in Attachment.objects.filter(entity_type=etype, entity_id=o.pk)
+            ]
+        })
+        return r
 
     def row(self, o, s):
         r = {'id': o.pk, 'name': o.name, 'company': o.company, 'contact_person': o.contact_person, 'email': o.email,
-             'phone': o.phone, 'billing_address': o.billing_address, 'state': o.state, 'gstin': o.gstin, 'pan': o.pan,
-             'payment_terms': o.payment_terms, 'notes': o.notes, 'active': o.active,
-             'billed': s['billed'], 'outstanding': s['outstanding'], 'overdue': s['overdue']}
-        if self.kind == 'customer':
-            r['shipping_address'] = o.shipping_address
+             'phone': o.phone, 'mobile': o.mobile, 'billing_address': o.billing_address, 'state': o.state,
+             'gstin': o.gstin, 'pan': o.pan, 'payment_terms': o.payment_terms, 'notes': o.notes, 'active': o.active,
+             'billed': s['billed'], 'outstanding': s['outstanding'], 'overdue': s['overdue'],
+             'shipping_address': o.shipping_address}
         return r
 
 
@@ -262,21 +390,19 @@ class CustomerResource(PartyResource):
     name = 'customers'
     model = Customer
     kind = 'customer'
-    csv_cols = [('Name', 'name'), ('Company', 'company'), ('Email', 'email'), ('Phone', 'phone'), ('State', 'state'),
-                ('GSTIN', 'gstin'), ('PAN', 'pan'), ('Payment terms (days)', 'payment_terms'),
+    csv_cols = [('Name', 'name'), ('Company', 'company'), ('Email', 'email'), ('Phone', 'phone'), ('Mobile', 'mobile'),
+                ('State', 'state'), ('GSTIN', 'gstin'), ('PAN', 'pan'), ('Payment terms (days)', 'payment_terms'),
                 ('Billed', 'billed'), ('Receivable', 'outstanding'), ('Overdue', 'overdue'), ('Active', 'active')]
-
-    def extra(self, c):
-        return {'shipping_address': c.text('shipping_address', max_len=1000)}
 
 
 class VendorResource(PartyResource):
     name = 'vendors'
     model = Vendor
     kind = 'vendor'
-    csv_cols = [('Name', 'name'), ('Company', 'company'), ('Email', 'email'), ('Phone', 'phone'), ('State', 'state'),
-                ('GSTIN', 'gstin'), ('PAN', 'pan'), ('Payment terms (days)', 'payment_terms'),
+    csv_cols = [('Name', 'name'), ('Company', 'company'), ('Email', 'email'), ('Phone', 'phone'), ('Mobile', 'mobile'),
+                ('State', 'state'), ('GSTIN', 'gstin'), ('PAN', 'pan'), ('Payment terms (days)', 'payment_terms'),
                 ('Billed', 'billed'), ('Payable', 'outstanding'), ('Overdue', 'overdue'), ('Active', 'active')]
+
 
 
 # ====================================================================== items

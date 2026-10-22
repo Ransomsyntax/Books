@@ -741,14 +741,102 @@ ${d.allocations.length ? `<table><thead><tr><th>${rec ? 'Invoice' : 'Bill'}</th>
 
 async function partyDetail(kind, id) {
   const cust = kind === 'customers', docs = cust ? 'invoices' : 'bills', pk = cust ? 'customer' : 'vendor', pay = cust ? 'payments-received' : 'payments-made';
-  const [p, dl, pl] = await Promise.all([api(`${kind}/${id}/`), api(`${docs}/?` + qs({ [pk]: id, page_size: 20, ordering: '-date' })), api(`${pay}/?` + qs({ [pk]: id, page_size: 20 }))]);
+  const [p, dl, pl] = await Promise.all([
+    api(`${kind}/${id}/`),
+    api(`${docs}/?` + qs({ [pk]: id, page_size: 20, ordering: '-date' })),
+    api(`${pay}/?` + qs({ [pk]: id, page_size: 20 }))
+  ]);
+
+  const primaryContact = [p.salutation, p.first_name, p.last_name].filter(x => x && x !== 'Salutation').join(' ') || p.contact_person || '—';
+  const billingAddr = p.billing_address || [p.billing_address_1, p.billing_address_2, p.billing_city, p.billing_state, p.billing_pincode].filter(Boolean).join(', ') || '—';
+  const shippingAddr = p.shipping_address || [p.shipping_address_1, p.shipping_address_2, p.shipping_city, p.shipping_state, p.shipping_pincode].filter(Boolean).join(', ') || '—';
+
   const m = Modal.open({
-    title: p.name, wide: true,
-    body: `${kvBox([['Billed', inr(p.billed)], [cust ? 'Receivable' : 'Payable', inr(p.outstanding)], ['Overdue', `<span class="${num(p.overdue) > 0 ? 'dn' : ''}">${inr(p.overdue)}</span>`], ['Email', esc(p.email || '—')], ['Phone', esc(p.phone || '—')], ['State', esc(p.state || '—')], ['GSTIN', esc(p.gstin || '—')], ['Payment terms', p.payment_terms + ' days']])}
-<h3 style="font-size:14px;margin:12px 0 6px">${cust ? 'Invoices' : 'Bills'}</h3>${dl.results.length ? `<div class="tw"><table><thead><tr><th>Number</th><th>Date</th><th>Status</th><th class="r">Total</th><th class="r">Balance</th></tr></thead><tbody>${dl.results.map(d => `<tr><td><button class="lk" type="button" data-open="${d.id}">${esc(d.number)}</button></td><td>${fd(d.date)}</td><td>${badge(d.status)}</td><td class="r">${inr(d.total)}</td><td class="r">${inr(d.balance)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="sub">None yet.</p>'}
-<h3 style="font-size:14px;margin:12px 0 6px">Payments</h3>${pl.results.length ? `<div class="tw"><table><thead><tr><th>Number</th><th>Date</th><th>Mode</th><th class="r">Amount</th></tr></thead><tbody>${pl.results.map(x => `<tr><td>${esc(x.number)}</td><td>${fd(x.date)}</td><td>${esc(x.mode_label)}</td><td class="r">${inr(x.amount)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="sub">None yet.</p>'}`,
+    title: `${p.name} · ${cust ? 'Customer' : 'Vendor'} Details`,
+    wide: true,
+    body: `
+      <div class="tabs-sub" style="display:flex;gap:16px;border-bottom:1px solid var(--bd-glass);margin-bottom:14px;padding-bottom:6px;">
+        <div style="font-weight:700;font-size:14px;color:var(--accent);">${esc(p.name)}</div>
+        <div class="sub" style="font-size:13px;">${esc(p.company || '')}</div>
+        <div style="margin-left:auto;">${badge(p.active ? 'Active' : 'Inactive')}</div>
+      </div>
+
+      ${kvBox([
+        ['Type', p.party_type === 'individual' ? 'Individual' : 'Business'],
+        ['Primary Contact', esc(primaryContact)],
+        ['Email', esc(p.email || '—')],
+        ['Work Phone', esc(p.phone || '—')],
+        ['Mobile', esc(p.mobile || '—')],
+        ['GST Treatment', esc((p.gst_treatment || 'registered_regular').replace(/_/g, ' ').toUpperCase())],
+        ['GSTIN', esc(p.gstin || '—')],
+        ['PAN', esc(p.pan || '—')],
+        ['Place of Supply', esc(p.state || '—')],
+        ['Payment Terms', `${p.payment_terms || 30} days (${p.payment_terms_label || 'Due on Receipt'})`],
+        ['Currency', esc(p.currency || 'INR')],
+        ['Opening Balance', inr(p.opening_balance || 0)],
+        ['Billed', inr(p.billed)],
+        [cust ? 'Receivable' : 'Payable', inr(p.outstanding)],
+        ['Overdue', `<span class="${num(p.overdue) > 0 ? 'dn' : ''}">${inr(p.overdue)}</span>`],
+      ])}
+
+      <div class="address-grid" style="margin:16px 0;">
+        <div style="padding:12px;background:var(--surface-glass);border:1px solid var(--bd-glass);border-radius:8px;">
+          <h5 style="margin:0 0 6px;font-size:13px;font-weight:700;color:var(--tx);">Billing Address</h5>
+          <div style="font-size:12.5px;color:var(--tx-muted);line-height:1.5;">${esc(billingAddr)}</div>
+        </div>
+        <div style="padding:12px;background:var(--surface-glass);border:1px solid var(--bd-glass);border-radius:8px;">
+          <h5 style="margin:0 0 6px;font-size:13px;font-weight:700;color:var(--tx);">Shipping Address</h5>
+          <div style="font-size:12.5px;color:var(--tx-muted);line-height:1.5;">${esc(shippingAddr)}</div>
+        </div>
+      </div>
+
+      ${(p.contact_persons && p.contact_persons.length) ? `
+        <h4 style="font-size:13.5px;margin:16px 0 8px;font-weight:700;">Contact Persons</h4>
+        <div class="tw">
+          <table>
+            <thead>
+              <tr><th>Name</th><th>Email</th><th>Work Phone</th><th>Mobile</th></tr>
+            </thead>
+            <tbody>
+              ${p.contact_persons.map(c => `
+                <tr>
+                  <td><b>${esc([c.salutation, c.first_name, c.last_name].filter(Boolean).join(' '))}</b></td>
+                  <td>${esc(c.email || '—')}</td>
+                  <td>${esc(c.phone || '—')}</td>
+                  <td>${esc(c.mobile || '—')}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      ` : ''}
+
+      ${(p.attachments && p.attachments.length) ? `
+        <h4 style="font-size:13.5px;margin:16px 0 8px;font-weight:700;">Attached Documents (${p.attachments.length})</h4>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;">
+          ${p.attachments.map(a => `
+            <a href="${esc(a.url || a.file_data)}" download="${esc(a.filename)}" target="_blank" class="file-badge-item" style="text-decoration:none;">
+              <span>📎 ${esc(a.filename)}</span>
+            </a>
+          `).join('')}
+        </div>
+      ` : ''}
+
+      <h3 style="font-size:14px;margin:16px 0 6px">${cust ? 'Invoices' : 'Bills'}</h3>
+      ${dl.results.length ? `
+        <div class="tw"><table><thead><tr><th>Number</th><th>Date</th><th>Status</th><th class="r">Total</th><th class="r">Balance</th></tr></thead><tbody>
+        ${dl.results.map(d => `<tr><td><button class="lk" type="button" data-open="${d.id}">${esc(d.number)}</button></td><td>${fd(d.date)}</td><td>${badge(d.status)}</td><td class="r">${inr(d.total)}</td><td class="r">${inr(d.balance)}</td></tr>`).join('')}
+        </tbody></table></div>` : '<p class="sub">None yet.</p>'}
+
+      <h3 style="font-size:14px;margin:16px 0 6px">Payments</h3>
+      ${pl.results.length ? `
+        <div class="tw"><table><thead><tr><th>Number</th><th>Date</th><th>Mode</th><th class="r">Amount</th></tr></thead><tbody>
+        ${pl.results.map(x => `<tr><td>${esc(x.number)}</td><td>${fd(x.date)}</td><td>${esc(x.mode_label)}</td><td class="r">${inr(x.amount)}</td></tr>`).join('')}
+        </tbody></table></div>` : '<p class="sub">None yet.</p>'}
+    `,
     footer: `<button class="btn" type="button" data-close>Close</button><button class="btn" type="button" data-do="edit">Edit</button><button class="btn" type="button" data-do="pay">Record payment</button>`,
   });
+
   m.el.addEventListener('click', e => {
     const o = e.target.closest('[data-open]'), a = e.target.closest('[data-do]');
     if (o) { m.close(); docDetail(docs, o.dataset.open).catch(err => toast(err.message, 'err')); }

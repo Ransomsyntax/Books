@@ -121,32 +121,827 @@ function formModal({ title, body, submit = 'Save', actions, wide, onSubmit, onRe
   return m;
 }
 
-/* ---------- parties ---------- */
+/* ---------- parties (Zoho Books Style) ---------- */
+const GST_STATE_CODES = {
+  '01': 'Jammu and Kashmir', '02': 'Himachal Pradesh', '03': 'Punjab', '04': 'Chandigarh',
+  '05': 'Uttarakhand', '06': 'Haryana', '07': 'Delhi', '08': 'Rajasthan', '09': 'Uttar Pradesh',
+  '10': 'Bihar', '11': 'Sikkim', '12': 'Arunachal Pradesh', '13': 'Nagaland', '14': 'Manipur',
+  '15': 'Mizoram', '16': 'Tripura', '17': 'Meghalaya', '18': 'Assam', '19': 'West Bengal',
+  '20': 'Jharkhand', '21': 'Odisha', '22': 'Chhattisgarh', '23': 'Madhya Pradesh', '24': 'Gujarat',
+  '26': 'Dadra and Nagar Haveli and Daman and Diu', '27': 'Maharashtra', '29': 'Karnataka',
+  '30': 'Goa', '31': 'Lakshadweep', '32': 'Kerala', '33': 'Tamil Nadu', '34': 'Puducherry',
+  '35': 'Andaman and Nicobar Islands', '36': 'Telangana', '37': 'Andhra Pradesh', '38': 'Ladakh'
+};
+
+const GST_TREATMENTS = [
+  ['registered_regular', 'Registered Business - Regular'],
+  ['registered_composition', 'Registered Business - Composition'],
+  ['unregistered', 'Unregistered Business'],
+  ['consumer', 'Consumer'],
+  ['overseas', 'Overseas'],
+  ['sez', 'Special Economic Zone (SEZ)'],
+  ['deemed_export', 'Deemed Export']
+];
+
+const PAYMENT_TERMS_PRESETS = [
+  ['0', 'Due on Receipt'],
+  ['15', 'Net 15'],
+  ['30', 'Net 30'],
+  ['45', 'Net 45'],
+  ['60', 'Net 60']
+];
+
+const LANGUAGES = ['English', 'Hindi', 'Malayalam', 'Tamil', 'Kannada', 'Telugu', 'Bengali', 'Marathi', 'Gujarati', 'Arabic', 'French', 'Spanish'];
+
 async function partyForm(kind, id) {
-  const one = kind === 'customers' ? 'customer' : 'vendor';
-  const r = id ? await api(`${kind}/${id}/`) : { payment_terms: 30, active: true, state: APP.org.state };
-  const stOpts = [['', 'Select state'], ...STATES];
+  const isCust = kind === 'customers';
+  const one = isCust ? 'Customer' : 'Vendor';
+  const r = id ? await api(`${kind}/${id}/`) : {
+    party_type: 'business',
+    salutation: 'Mr.',
+    first_name: '',
+    last_name: '',
+    name: '',
+    company: '',
+    email: '',
+    phone: '',
+    mobile: '',
+    language: 'English',
+    gst_treatment: 'registered_regular',
+    gstin: '',
+    pan: '',
+    state: APP.org.state || 'Kerala',
+    tax_preference: 'taxable',
+    currency: 'INR',
+    opening_balance: '0.00',
+    payment_terms: 30,
+    payment_terms_label: 'Due on Receipt',
+    enable_portal: false,
+    billing_attention: '',
+    billing_country: 'India',
+    billing_address_1: '',
+    billing_address_2: '',
+    billing_city: '',
+    billing_state: APP.org.state || 'Kerala',
+    billing_pincode: '',
+    billing_phone: '',
+    billing_fax: '',
+    shipping_attention: '',
+    shipping_country: 'India',
+    shipping_address_1: '',
+    shipping_address_2: '',
+    shipping_city: '',
+    shipping_state: APP.org.state || 'Kerala',
+    shipping_pincode: '',
+    shipping_phone: '',
+    shipping_fax: '',
+    contact_persons: [],
+    custom_fields: {},
+    remarks: '',
+    notes: '',
+    active: true,
+  };
+
+  const stOpts = [['', 'Select or type to add'], ...STATES.map(s => [s, s])];
+  const pendingFiles = [];
+
   formModal({
-    title: (id ? 'Edit ' : 'New ') + one, wide: true,
-    body: `<div class="fgrid">${[
-      fld({ name: 'name', label: 'Display name', req: 1, value: r.name, col: 'c2', attrs: 'maxlength="200"' }),
-      fld({ name: 'company', label: 'Company name', value: r.company }), fld({ name: 'contact_person', label: 'Contact person', value: r.contact_person }),
-      fld({ name: 'email', label: 'Email', type: 'email', value: r.email }), fld({ name: 'phone', label: 'Phone', type: 'tel', value: r.phone }),
-      fld({ name: 'state', label: 'State / place of supply', type: 'select', opts: stOpts, value: r.state }),
-      fld({ name: 'payment_terms', label: 'Payment terms (days)', type: 'number', value: r.payment_terms, attrs: 'min="0" max="365" step="1"' }),
-      fld({ name: 'gstin', label: 'GSTIN', value: r.gstin, attrs: 'maxlength="15"', ph: '22AAAAA0000A1Z5' }), fld({ name: 'pan', label: 'PAN', value: r.pan, attrs: 'maxlength="10"' }),
-      fld({ name: 'billing_address', label: 'Billing address', type: 'textarea', value: r.billing_address, col: 'c2' }),
-      kind === 'customers' ? fld({ name: 'shipping_address', label: 'Shipping address', type: 'textarea', value: r.shipping_address, col: 'c2' }) : '',
-      fld({ name: 'notes', label: 'Notes', type: 'textarea', value: r.notes, col: 'c2' }),
-      id ? fld({ name: 'active', label: 'Active', type: 'checkbox', value: r.active }) : '',
-    ].join('')}</div>`,
-    onSubmit: async d => {
+    title: (id ? 'Edit ' : 'New ') + one,
+    wide: true,
+    submit: 'Save',
+    body: `
+      <div class="party-form-container">
+        <!-- GST Prefill Banner -->
+        <div class="gst-banner">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 7h10M7 12h10M7 17h6"/></svg>
+          <div style="flex:1;">
+            Prefill ${one} details from the GST portal using the ${one}'s GSTIN.
+            <button type="button" class="gst-banner-btn" id="btn-gst-prefill">Prefill &gt;</button>
+          </div>
+        </div>
+
+        <!-- 1. Customer / Vendor Type -->
+        <div class="party-form-row">
+          <div class="party-form-label">
+            ${one} Type <span class="party-info-icon" title="Choose whether this entity is a Business or an Individual.">i</span>
+          </div>
+          <div class="party-radio-group">
+            <label class="party-radio-item">
+              <input type="radio" name="party_type" value="business" ${r.party_type !== 'individual' ? 'checked' : ''}>
+              <span>Business</span>
+            </label>
+            <label class="party-radio-item">
+              <input type="radio" name="party_type" value="individual" ${r.party_type === 'individual' ? 'checked' : ''}>
+              <span>Individual</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- 2. Primary Contact -->
+        <div class="party-form-row">
+          <div class="party-form-label">
+            Primary Contact <span class="party-info-icon" title="Primary person to contact for orders and invoices.">i</span>
+          </div>
+          <div class="party-name-row">
+            <select class="in" name="salutation" id="party_salutation">
+              <option value="Salutation" ${!r.salutation || r.salutation === 'Salutation' ? 'selected' : ''}>Salutation</option>
+              <option value="Mr." ${r.salutation === 'Mr.' ? 'selected' : ''}>Mr.</option>
+              <option value="Mrs." ${r.salutation === 'Mrs.' ? 'selected' : ''}>Mrs.</option>
+              <option value="Ms." ${r.salutation === 'Ms.' ? 'selected' : ''}>Ms.</option>
+              <option value="Miss" ${r.salutation === 'Miss' ? 'selected' : ''}>Miss</option>
+              <option value="Dr." ${r.salutation === 'Dr.' ? 'selected' : ''}>Dr.</option>
+            </select>
+            <input class="in" type="text" name="first_name" id="party_first_name" value="${esc(r.first_name || '')}" placeholder="First Name">
+            <input class="in" type="text" name="last_name" id="party_last_name" value="${esc(r.last_name || '')}" placeholder="Last Name">
+          </div>
+        </div>
+
+        <!-- 3. Company Name -->
+        <div class="party-form-row">
+          <div class="party-form-label">Company Name</div>
+          <div>
+            <input class="in" type="text" name="company" id="party_company" value="${esc(r.company || '')}" placeholder="Company Name" style="width:100%;">
+          </div>
+        </div>
+
+        <!-- 4. Display Name* (Select or type to add) -->
+        <div class="party-form-row">
+          <div class="party-form-label req">
+            Display Name<span class="rq">*</span> <span class="party-info-icon" title="Name shown in invoices, bills, statements, and transaction lists.">i</span>
+          </div>
+          <div>
+            <input class="in" type="text" name="name" id="party_display_name" value="${esc(r.name || '')}" placeholder="Select or type to add" list="dl_display_names" required style="width:100%;">
+            <datalist id="dl_display_names"></datalist>
+            <div class="er" data-err="name" role="alert"></div>
+          </div>
+        </div>
+
+        <!-- 5. Email Address -->
+        <div class="party-form-row">
+          <div class="party-form-label">
+            Email Address <span class="party-info-icon" title="Main email address for invoices and communications.">i</span>
+          </div>
+          <div class="prefix-input-wrap">
+            <span class="prefix-badge" style="padding:0 12px;">✉</span>
+            <input class="in" type="email" name="email" id="party_email" value="${esc(r.email || '')}" placeholder="email@domain.com">
+          </div>
+        </div>
+
+        <!-- 6. Phone (Work Phone & Mobile) -->
+        <div class="party-form-row">
+          <div class="party-form-label">
+            Phone <span class="party-info-icon" title="Work and mobile numbers.">i</span>
+          </div>
+          <div class="phone-pair">
+            <div class="prefix-input-wrap">
+              <span class="prefix-badge">+91 ▾</span>
+              <input class="in" type="tel" name="phone" id="party_phone" value="${esc(r.phone || '')}" placeholder="Work Phone">
+            </div>
+            <div class="prefix-input-wrap">
+              <span class="prefix-badge">+91 ▾</span>
+              <input class="in" type="tel" name="mobile" id="party_mobile" value="${esc(r.mobile || '')}" placeholder="Mobile">
+            </div>
+          </div>
+        </div>
+
+        <!-- 7. Customer / Vendor Language -->
+        <div class="party-form-row">
+          <div class="party-form-label">
+            ${one} Language <span class="party-info-icon" title="Language preferred for notifications and communication.">i</span>
+          </div>
+          <div>
+            <select class="in" name="language" style="width:100%;">
+              ${LANGUAGES.map(l => `<option value="${l}" ${r.language === l ? 'selected' : ''}>${l}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+
+        <!-- Tabs Navigation -->
+        <div class="party-tabs-nav">
+          <button type="button" class="party-tab-link active" data-tab="other">Other Details</button>
+          <button type="button" class="party-tab-link" data-tab="address">Address</button>
+          <button type="button" class="party-tab-link" data-tab="contacts">Contact Persons</button>
+          <button type="button" class="party-tab-link" data-tab="custom">Custom Fields</button>
+          <button type="button" class="party-tab-link" data-tab="tags">Reporting Tags</button>
+          <button type="button" class="party-tab-link" data-tab="remarks">Remarks</button>
+        </div>
+
+        <!-- TAB 1: Other Details -->
+        <div class="party-tab-pane active" id="pane-other">
+          <div class="party-form-row">
+            <div class="party-form-label req">GST Treatment<span class="rq">*</span></div>
+            <div>
+              <select class="in" name="gst_treatment" id="party_gst_treatment" style="width:100%;">
+                ${GST_TREATMENTS.map(([v, l]) => `<option value="${v}" ${r.gst_treatment === v ? 'selected' : ''}>${l}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+
+          <div class="party-form-row" id="gstin_row">
+            <div class="party-form-label">GSTIN / UIN</div>
+            <div>
+              <input class="in" type="text" name="gstin" id="party_gstin" value="${esc(r.gstin || '')}" placeholder="e.g. 32AANCC9298C1ZE" maxlength="15" style="text-transform:uppercase;width:100%;">
+              <div class="er" data-err="gstin" role="alert"></div>
+            </div>
+          </div>
+
+          <div class="party-form-row">
+            <div class="party-form-label req">Place of Supply<span class="rq">*</span></div>
+            <div>
+              <select class="in" name="state" id="party_state" style="width:100%;">
+                ${stOpts.map(([v, l]) => `<option value="${v}" ${r.state === v ? 'selected' : ''}>${l}</option>`).join('')}
+              </select>
+              <div class="er" data-err="state" role="alert"></div>
+            </div>
+          </div>
+
+          <div class="party-form-row">
+            <div class="party-form-label">
+              PAN <span class="party-info-icon" title="10-character Permanent Account Number.">i</span>
+            </div>
+            <div>
+              <input class="in" type="text" name="pan" id="party_pan" value="${esc(r.pan || '')}" placeholder="e.g. AANCC9298C" maxlength="10" style="text-transform:uppercase;width:100%;">
+              <div class="er" data-err="pan" role="alert"></div>
+            </div>
+          </div>
+
+          <div class="party-form-row">
+            <div class="party-form-label req">Tax Preference<span class="rq">*</span></div>
+            <div class="party-radio-group">
+              <label class="party-radio-item">
+                <input type="radio" name="tax_preference" value="taxable" ${r.tax_preference !== 'exempt' ? 'checked' : ''}>
+                <span>Taxable</span>
+              </label>
+              <label class="party-radio-item">
+                <input type="radio" name="tax_preference" value="exempt" ${r.tax_preference === 'exempt' ? 'checked' : ''}>
+                <span>Tax Exempt</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="party-form-row">
+            <div class="party-form-label">Currency</div>
+            <div>
+              <select class="in" name="currency" style="width:100%;">
+                <option value="INR" ${r.currency === 'INR' ? 'selected' : ''}>INR - Indian Rupee</option>
+                <option value="USD" ${r.currency === 'USD' ? 'selected' : ''}>USD - US Dollar</option>
+                <option value="EUR" ${r.currency === 'EUR' ? 'selected' : ''}>EUR - Euro</option>
+                <option value="GBP" ${r.currency === 'GBP' ? 'selected' : ''}>GBP - British Pound</option>
+                <option value="AED" ${r.currency === 'AED' ? 'selected' : ''}>AED - UAE Dirham</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="party-form-row">
+            <div class="party-form-label">Opening Balance</div>
+            <div class="prefix-input-wrap">
+              <span class="prefix-badge">INR</span>
+              <input class="in" type="number" step="0.01" name="opening_balance" value="${esc(r.opening_balance || '0.00')}" placeholder="0.00">
+            </div>
+          </div>
+
+          <div class="party-form-row">
+            <div class="party-form-label">Payment Terms</div>
+            <div>
+              <select class="in" name="payment_terms" id="party_payment_terms" style="width:100%;">
+                ${PAYMENT_TERMS_PRESETS.map(([days, label]) => `<option value="${days}" ${String(r.payment_terms) === days ? 'selected' : ''}>${label}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+
+          <div class="party-form-row">
+            <div class="party-form-label">
+              Enable Portal? <span class="party-info-icon" title="Give client access to view their estimates and invoices online.">i</span>
+            </div>
+            <div>
+              <label class="ck" style="font-size:13px;cursor:pointer;">
+                <input type="checkbox" name="enable_portal" ${r.enable_portal ? 'checked' : ''}> Allow portal access for this ${one.toLowerCase()}
+              </label>
+            </div>
+          </div>
+
+          <div class="party-form-row align-top">
+            <div class="party-form-label">Documents</div>
+            <div>
+              <div class="file-attach-drop-area" id="party-dropzone">
+                <input type="file" id="party-file-input" multiple style="display:none;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <button type="button" class="btn" id="btn-browse-party-doc">⇪ Upload File ▾</button>
+                  <span class="file-attach-caption">You can upload a maximum of 10 files, 10MB each</span>
+                </div>
+              </div>
+              <div class="file-badges-list" id="party-file-badges">
+                ${(r.attachments || []).map(a => `
+                  <div class="file-badge-item">
+                    <span>📎 ${esc(a.filename)}</span>
+                    <button type="button" class="file-badge-rm" data-del-existing-att="${a.id}" title="Remove file">×</button>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+
+          <div class="party-form-row align-top" style="margin-top:20px;">
+            <div class="party-form-label" style="font-size:12px;color:var(--tx-muted);">${one} Owner:</div>
+            <div style="font-size:12px;color:var(--tx-muted);">
+              Assign a user as the ${one.toLowerCase()} owner to provide access only to the data of this ${one.toLowerCase()}. <a href="#" onclick="event.preventDefault();toast('Owner management active');">Learn More</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 2: Address -->
+        <div class="party-tab-pane" id="pane-address">
+          <div class="address-grid">
+            <!-- Left: Billing Address -->
+            <div class="address-col">
+              <div class="address-col-title-wrap">
+                <h4 class="address-col-title">Billing Address</h4>
+              </div>
+              <div class="addr-field-row">
+                <div class="addr-field-label">Attention</div>
+                <input class="in" type="text" name="billing_attention" id="b_attention" value="${esc(r.billing_attention || '')}">
+              </div>
+              <div class="addr-field-row">
+                <div class="addr-field-label">Country/Region</div>
+                <select class="in" name="billing_country" id="b_country">
+                  <option value="India" ${r.billing_country === 'India' || !r.billing_country ? 'selected' : ''}>India</option>
+                  <option value="United States" ${r.billing_country === 'United States' ? 'selected' : ''}>United States</option>
+                  <option value="United Arab Emirates" ${r.billing_country === 'United Arab Emirates' ? 'selected' : ''}>United Arab Emirates</option>
+                  <option value="United Kingdom" ${r.billing_country === 'United Kingdom' ? 'selected' : ''}>United Kingdom</option>
+                </select>
+              </div>
+              <div class="addr-field-row align-top">
+                <div class="addr-field-label">Address</div>
+                <div>
+                  <textarea class="in" name="billing_address_1" id="b_addr1" rows="2" placeholder="Street 1">${esc(r.billing_address_1 || '')}</textarea>
+                  <textarea class="in" name="billing_address_2" id="b_addr2" rows="2" placeholder="Street 2" style="margin-top:6px;">${esc(r.billing_address_2 || '')}</textarea>
+                </div>
+              </div>
+              <div class="addr-field-row">
+                <div class="addr-field-label">City</div>
+                <input class="in" type="text" name="billing_city" id="b_city" value="${esc(r.billing_city || '')}">
+              </div>
+              <div class="addr-field-row">
+                <div class="addr-field-label">State</div>
+                <select class="in" name="billing_state" id="b_state">
+                  ${stOpts.map(([v, l]) => `<option value="${v}" ${(r.billing_state || r.state) === v ? 'selected' : ''}>${l}</option>`).join('')}
+                </select>
+              </div>
+              <div class="addr-field-row">
+                <div class="addr-field-label">Pin Code</div>
+                <input class="in" type="text" name="billing_pincode" id="b_pincode" value="${esc(r.billing_pincode || '')}">
+              </div>
+              <div class="addr-field-row">
+                <div class="addr-field-label">Phone</div>
+                <div class="prefix-input-wrap">
+                  <span class="prefix-badge">+91 ▾</span>
+                  <input class="in" type="tel" name="billing_phone" id="b_phone" value="${esc(r.billing_phone || '')}">
+                </div>
+              </div>
+              <div class="addr-field-row">
+                <div class="addr-field-label">Fax Number</div>
+                <input class="in" type="text" name="billing_fax" id="b_fax" value="${esc(r.billing_fax || '')}">
+              </div>
+            </div>
+
+            <!-- Right: Shipping Address -->
+            <div class="address-col">
+              <div class="address-col-title-wrap">
+                <h4 class="address-col-title">Shipping Address</h4>
+                <button type="button" class="copy-addr-btn" id="btn-copy-billing">⬇ Copy billing address</button>
+              </div>
+              <div class="addr-field-row">
+                <div class="addr-field-label">Attention</div>
+                <input class="in" type="text" name="shipping_attention" id="s_attention" value="${esc(r.shipping_attention || '')}">
+              </div>
+              <div class="addr-field-row">
+                <div class="addr-field-label">Country/Region</div>
+                <select class="in" name="shipping_country" id="s_country">
+                  <option value="India" ${r.shipping_country === 'India' || !r.shipping_country ? 'selected' : ''}>India</option>
+                  <option value="United States" ${r.shipping_country === 'United States' ? 'selected' : ''}>United States</option>
+                  <option value="United Arab Emirates" ${r.shipping_country === 'United Arab Emirates' ? 'selected' : ''}>United Arab Emirates</option>
+                  <option value="United Kingdom" ${r.shipping_country === 'United Kingdom' ? 'selected' : ''}>United Kingdom</option>
+                </select>
+              </div>
+              <div class="addr-field-row align-top">
+                <div class="addr-field-label">Address</div>
+                <div>
+                  <textarea class="in" name="shipping_address_1" id="s_addr1" rows="2" placeholder="Street 1">${esc(r.shipping_address_1 || '')}</textarea>
+                  <textarea class="in" name="shipping_address_2" id="s_addr2" rows="2" placeholder="Street 2" style="margin-top:6px;">${esc(r.shipping_address_2 || '')}</textarea>
+                </div>
+              </div>
+              <div class="addr-field-row">
+                <div class="addr-field-label">City</div>
+                <input class="in" type="text" name="shipping_city" id="s_city" value="${esc(r.shipping_city || '')}">
+              </div>
+              <div class="addr-field-row">
+                <div class="addr-field-label">State</div>
+                <select class="in" name="shipping_state" id="s_state">
+                  ${stOpts.map(([v, l]) => `<option value="${v}" ${r.shipping_state === v ? 'selected' : ''}>${l}</option>`).join('')}
+                </select>
+              </div>
+              <div class="addr-field-row">
+                <div class="addr-field-label">Pin Code</div>
+                <input class="in" type="text" name="shipping_pincode" id="s_pincode" value="${esc(r.shipping_pincode || '')}">
+              </div>
+              <div class="addr-field-row">
+                <div class="addr-field-label">Phone</div>
+                <div class="prefix-input-wrap">
+                  <span class="prefix-badge">+91 ▾</span>
+                  <input class="in" type="tel" name="shipping_phone" id="s_phone" value="${esc(r.shipping_phone || '')}">
+                </div>
+              </div>
+              <div class="addr-field-row">
+                <div class="addr-field-label">Fax Number</div>
+                <input class="in" type="text" name="shipping_fax" id="s_fax" value="${esc(r.shipping_fax || '')}">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 3: Contact Persons -->
+        <div class="party-tab-pane" id="pane-contacts">
+          <div class="contacts-tbl-wrap">
+            <table class="contacts-tbl" id="tbl-contact-persons">
+              <thead>
+                <tr>
+                  <th style="width:110px;">Salutation</th>
+                  <th>First Name</th>
+                  <th>Last Name</th>
+                  <th>Email Address</th>
+                  <th>Work Phone</th>
+                  <th>Mobile</th>
+                  <th style="width:40px;"></th>
+                </tr>
+              </thead>
+              <tbody id="contact-persons-tbody">
+                ${((r.contact_persons && r.contact_persons.length) ? r.contact_persons : [{}]).map((cp, idx) => `
+                  <tr class="cp-row">
+                    <td>
+                      <select class="in cp-salutation">
+                        <option value="Mr." ${cp.salutation === 'Mr.' ? 'selected' : ''}>Mr.</option>
+                        <option value="Mrs." ${cp.salutation === 'Mrs.' ? 'selected' : ''}>Mrs.</option>
+                        <option value="Ms." ${cp.salutation === 'Ms.' ? 'selected' : ''}>Ms.</option>
+                        <option value="Miss" ${cp.salutation === 'Miss' ? 'selected' : ''}>Miss</option>
+                        <option value="Dr." ${cp.salutation === 'Dr.' ? 'selected' : ''}>Dr.</option>
+                      </select>
+                    </td>
+                    <td><input class="in cp-fname" type="text" value="${esc(cp.first_name || '')}" placeholder="First Name"></td>
+                    <td><input class="in cp-lname" type="text" value="${esc(cp.last_name || '')}" placeholder="Last Name"></td>
+                    <td><input class="in cp-email" type="email" value="${esc(cp.email || '')}" placeholder="Email"></td>
+                    <td>
+                      <div class="prefix-input-wrap" style="height:32px;">
+                        <span class="prefix-badge" style="height:32px;padding:0 6px;font-size:11px;">+91 ▾</span>
+                        <input class="in cp-phone" type="tel" value="${esc(cp.phone || '')}" style="height:32px;">
+                      </div>
+                    </td>
+                    <td>
+                      <div class="prefix-input-wrap" style="height:32px;">
+                        <span class="prefix-badge" style="height:32px;padding:0 6px;font-size:11px;">+91 ▾</span>
+                        <input class="in cp-mobile" type="tel" value="${esc(cp.mobile || '')}" style="height:32px;">
+                      </div>
+                    </td>
+                    <td style="text-align:center;">
+                      <button type="button" class="btn-rm-contact" title="Remove" onclick="this.closest('tr').remove()">✕</button>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+          <button type="button" class="btn-add-contact" id="btn-add-cp">+ Add Contact Person</button>
+        </div>
+
+        <!-- TAB 4: Custom Fields -->
+        <div class="party-tab-pane" id="pane-custom">
+          <div style="font-size:13px;color:var(--tx-muted);margin-bottom:14px;">Add custom metadata or reference IDs for this ${one.toLowerCase()}.</div>
+          <div id="custom-fields-box">
+            ${Object.entries(r.custom_fields || {}).map(([k, v]) => `
+              <div class="party-form-row cf-row">
+                <input class="in cf-key" type="text" value="${esc(k)}" placeholder="Field Name">
+                <div style="display:flex;gap:10px;">
+                  <input class="in cf-val" type="text" value="${esc(v)}" placeholder="Value" style="flex:1;">
+                  <button type="button" class="btn-rm-contact" onclick="this.closest('.cf-row').remove()">✕</button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+          <button type="button" class="btn" id="btn-add-cf" style="margin-top:6px;">+ Add Custom Field</button>
+        </div>
+
+        <!-- TAB 5: Reporting Tags -->
+        <div class="party-tab-pane" id="pane-tags">
+          <div style="font-size:13px;color:var(--tx-muted);margin-bottom:14px;">Associate reporting tags to track performance and group reports.</div>
+          <div class="party-form-row">
+            <div class="party-form-label">Tags</div>
+            <input class="in" type="text" name="notes" value="${esc(r.notes || '')}" placeholder="e.g. Retail, B2B, South Zone, Priority" style="width:100%;">
+          </div>
+        </div>
+
+        <!-- TAB 6: Remarks -->
+        <div class="party-tab-pane" id="pane-remarks">
+          <div class="party-form-row align-top">
+            <div class="party-form-label">Remarks</div>
+            <textarea class="in" name="remarks" rows="4" placeholder="Internal notes or special instructions for this ${one.toLowerCase()} (will not be shown to customer)…" style="width:100%;">${esc(r.remarks || '')}</textarea>
+          </div>
+          ${id ? `
+          <div class="party-form-row">
+            <div class="party-form-label">Status</div>
+            <label class="ck"><input type="checkbox" name="active" ${r.active ? 'checked' : ''}> Active ${one}</label>
+          </div>
+          ` : ''}
+        </div>
+      </div>
+    `,
+    onReady: (form, m) => {
+      // 1. Tab Switching
+      const tabs = $$('.party-tab-link', form);
+      const panes = $$('.party-tab-pane', form);
+      tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          tabs.forEach(t => t.classList.remove('active'));
+          panes.forEach(p => p.classList.remove('active'));
+          tab.classList.add('active');
+          const target = $('#pane-' + tab.dataset.tab, form);
+          if (target) target.classList.add('active');
+        });
+      });
+
+      // 2. Dynamic Display Name Suggestions
+      const salInput = $('#party_salutation', form);
+      const fnInput = $('#party_first_name', form);
+      const lnInput = $('#party_last_name', form);
+      const compInput = $('#party_company', form);
+      const dnInput = $('#party_display_name', form);
+      const dl = $('#dl_display_names', form);
+
+      let prevAutoName = '';
+      const updateSuggestions = () => {
+        const sal = salInput.value !== 'Salutation' ? salInput.value : '';
+        const fn = fnInput.value.trim();
+        const ln = lnInput.value.trim();
+        const comp = compInput.value.trim();
+
+        const optsList = [];
+        if (comp) optsList.push(comp);
+        if (fn || ln) {
+          const fl = `${fn} ${ln}`.trim();
+          optsList.push(fl);
+          if (sal) optsList.push(`${sal} ${fl}`.trim());
+          if (ln && fn) optsList.push(`${ln}, ${fn}`);
+        }
+        dl.innerHTML = optsList.map(o => `<option value="${esc(o)}">`).join('');
+
+        // If display name is empty or matched previous auto-suggestion, update it
+        if (!dnInput.value || dnInput.value === prevAutoName) {
+          const best = comp || optsList[0] || '';
+          if (best) {
+            dnInput.value = best;
+            prevAutoName = best;
+          }
+        }
+      };
+
+      [salInput, fnInput, lnInput, compInput].forEach(inp => {
+        if (inp) inp.addEventListener('input', updateSuggestions);
+        if (inp) inp.addEventListener('change', updateSuggestions);
+      });
+      updateSuggestions();
+
+      // 3. GST Prefill Feature
+      const btnPrefill = $('#btn-gst-prefill', form);
+      const gstinInput = $('#party_gstin', form);
+      const panInput = $('#party_pan', form);
+      const stateSelect = $('#party_state', form);
+      const bStateSelect = $('#b_state', form);
+
+      const doGstPrefill = () => {
+        const gstin = (gstinInput.value || '').trim().toUpperCase();
+        if (gstin.length >= 2) {
+          const stateCode = gstin.slice(0, 2);
+          const stateName = GST_STATE_CODES[stateCode];
+          if (stateName) {
+            if (stateSelect) stateSelect.value = stateName;
+            if (bStateSelect) bStateSelect.value = stateName;
+          }
+        }
+        if (gstin.length >= 12) {
+          const pan = gstin.slice(2, 12);
+          if (panInput) panInput.value = pan;
+        }
+        if (gstin.length === 15) {
+          toast(`Extracted PAN and State from GSTIN: ${gstin}`);
+        }
+      };
+
+      if (btnPrefill) {
+        btnPrefill.addEventListener('click', e => {
+          e.preventDefault();
+          const cur = gstinInput.value.trim();
+          if (!cur) {
+            const entered = window.prompt(`Enter 15-character GSTIN to prefill ${one.toLowerCase()} details:`);
+            if (entered && entered.trim()) {
+              gstinInput.value = entered.trim().toUpperCase();
+              doGstPrefill();
+              // Switch to Other Details tab so user sees it
+              const oTab = form.querySelector('[data-tab="other"]');
+              if (oTab) oTab.click();
+            }
+          } else {
+            doGstPrefill();
+          }
+        });
+      }
+      if (gstinInput) {
+        gstinInput.addEventListener('input', () => {
+          if (gstinInput.value.length === 15) doGstPrefill();
+        });
+      }
+
+      // 4. Copy Billing Address to Shipping Address
+      const copyBtn = $('#btn-copy-billing', form);
+      if (copyBtn) {
+        copyBtn.addEventListener('click', e => {
+          e.preventDefault();
+          $('#s_attention', form).value = $('#b_attention', form).value;
+          $('#s_country', form).value = $('#b_country', form).value;
+          $('#s_addr1', form).value = $('#b_addr1', form).value;
+          $('#s_addr2', form).value = $('#b_addr2', form).value;
+          $('#s_city', form).value = $('#b_city', form).value;
+          $('#s_state', form).value = $('#b_state', form).value;
+          $('#s_pincode', form).value = $('#b_pincode', form).value;
+          $('#s_phone', form).value = $('#b_phone', form).value;
+          $('#s_fax', form).value = $('#b_fax', form).value;
+          toast('Copied billing address to shipping address');
+          m.markDirty();
+        });
+      }
+
+      // 5. Add Contact Person Row
+      const btnAddCp = $('#btn-add-cp', form);
+      const cpTbody = $('#contact-persons-tbody', form);
+      if (btnAddCp && cpTbody) {
+        btnAddCp.addEventListener('click', () => {
+          const tr = document.createElement('tr');
+          tr.className = 'cp-row';
+          tr.innerHTML = `
+            <td>
+              <select class="in cp-salutation">
+                <option value="Mr.">Mr.</option>
+                <option value="Mrs.">Mrs.</option>
+                <option value="Ms.">Ms.</option>
+                <option value="Miss">Miss</option>
+                <option value="Dr.">Dr.</option>
+              </select>
+            </td>
+            <td><input class="in cp-fname" type="text" placeholder="First Name"></td>
+            <td><input class="in cp-lname" type="text" placeholder="Last Name"></td>
+            <td><input class="in cp-email" type="email" placeholder="Email"></td>
+            <td>
+              <div class="prefix-input-wrap" style="height:32px;">
+                <span class="prefix-badge" style="height:32px;padding:0 6px;font-size:11px;">+91 ▾</span>
+                <input class="in cp-phone" type="tel" style="height:32px;">
+              </div>
+            </td>
+            <td>
+              <div class="prefix-input-wrap" style="height:32px;">
+                <span class="prefix-badge" style="height:32px;padding:0 6px;font-size:11px;">+91 ▾</span>
+                <input class="in cp-mobile" type="tel" style="height:32px;">
+              </div>
+            </td>
+            <td style="text-align:center;">
+              <button type="button" class="btn-rm-contact" title="Remove" onclick="this.closest('tr').remove()">✕</button>
+            </td>
+          `;
+          cpTbody.appendChild(tr);
+          m.markDirty();
+        });
+      }
+
+      // 6. Custom Fields Add Row
+      const btnAddCf = $('#btn-add-cf', form);
+      const cfBox = $('#custom-fields-box', form);
+      if (btnAddCf && cfBox) {
+        btnAddCf.addEventListener('click', () => {
+          const div = document.createElement('div');
+          div.className = 'party-form-row cf-row';
+          div.innerHTML = `
+            <input class="in cf-key" type="text" placeholder="Field Name">
+            <div style="display:flex;gap:10px;">
+              <input class="in cf-val" type="text" placeholder="Value" style="flex:1;">
+              <button type="button" class="btn-rm-contact" onclick="this.closest('.cf-row').remove()">✕</button>
+            </div>
+          `;
+          cfBox.appendChild(div);
+          m.markDirty();
+        });
+      }
+
+      // 7. File Attachments (Upload files & dropzone)
+      const fIn = $('#party-file-input', form);
+      const btnBrowse = $('#btn-browse-party-doc', form);
+      const badgeList = $('#party-file-badges', form);
+      const dropzone = $('#party-dropzone', form);
+
+      if (btnBrowse && fIn) {
+        btnBrowse.addEventListener('click', () => fIn.click());
+      }
+      const handleFiles = files => {
+        for (const file of Array.from(files)) {
+          const reader = new FileReader();
+          reader.onload = ev => {
+            pendingFiles.push({ filename: file.name, file_size: file.size, mime_type: file.type, file_data: ev.target.result });
+            const item = document.createElement('div');
+            item.className = 'file-badge-item';
+            item.innerHTML = `<span>📎 ${esc(file.name)} (${fmtBytes(file.size)})</span><button type="button" class="file-badge-rm">×</button>`;
+            item.querySelector('.file-badge-rm').addEventListener('click', () => {
+              const idx = pendingFiles.findIndex(p => p.filename === file.name);
+              if (idx >= 0) pendingFiles.splice(idx, 1);
+              item.remove();
+            });
+            badgeList.appendChild(item);
+            m.markDirty();
+          };
+          reader.readAsDataURL(file);
+        }
+      };
+
+      if (fIn) fIn.addEventListener('change', () => handleFiles(fIn.files));
+      if (dropzone) {
+        dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.style.borderColor = 'var(--accent)'; });
+        dropzone.addEventListener('dragleave', () => { dropzone.style.borderColor = ''; });
+        dropzone.addEventListener('drop', e => {
+          e.preventDefault();
+          dropzone.style.borderColor = '';
+          if (e.dataTransfer && e.dataTransfer.files) handleFiles(e.dataTransfer.files);
+        });
+      }
+
+      // Delete existing attachments on record
+      badgeList.addEventListener('click', async e => {
+        const btn = e.target.closest('[data-del-existing-att]');
+        if (btn) {
+          const attId = btn.dataset.delExistingAtt;
+          try {
+            await api(`attachments/${attId}/`, { method: 'DELETE' });
+            btn.closest('.file-badge-item').remove();
+            toast('Attachment removed');
+          } catch (err) { toast(err.message, 'err'); }
+        }
+      });
+    },
+    onSubmit: async (d, action, form) => {
+      // Collect Contact Persons
+      const contactPersons = [];
+      $$('#contact-persons-tbody tr.cp-row', form).forEach(tr => {
+        const fn = $('.cp-fname', tr).value.trim();
+        const ln = $('.cp-lname', tr).value.trim();
+        const em = $('.cp-email', tr).value.trim();
+        const ph = $('.cp-phone', tr).value.trim();
+        const mb = $('.cp-mobile', tr).value.trim();
+        const sal = $('.cp-salutation', tr).value;
+        if (fn || ln || em || ph || mb) {
+          contactPersons.push({ salutation: sal, first_name: fn, last_name: ln, email: em, phone: ph, mobile: mb });
+        }
+      });
+      d.contact_persons = contactPersons;
+
+      // Collect Custom Fields
+      const customFields = {};
+      $$('#custom-fields-box .cf-row', form).forEach(row => {
+        const k = $('.cf-key', row).value.trim();
+        const v = $('.cf-val', row).value.trim();
+        if (k) customFields[k] = v;
+      });
+      d.custom_fields = customFields;
+
       if (!id) d.active = true;
-      await api(id ? `${kind}/${id}/` : `${kind}/`, { method: id ? 'PUT' : 'POST', body: d });
-      toast(`${one[0].toUpperCase() + one.slice(1)} ${id ? 'updated' : 'created'}`); refresh();
+
+      // API call
+      const saved = await api(id ? `${kind}/${id}/` : `${kind}/`, {
+        method: id ? 'PUT' : 'POST',
+        body: d
+      });
+
+      // Upload any pending attached files
+      if (pendingFiles.length) {
+        const etype = isCust ? 'customer' : 'vendor';
+        for (const pf of pendingFiles) {
+          try {
+            await api('attachments/', {
+              method: 'POST',
+              body: { entity_type: etype, entity_id: saved.id, ...pf }
+            });
+          } catch (err) { /* best-effort attachment save */ }
+        }
+      }
+
+      toast(`${one} ${id ? 'updated' : 'created'} successfully`);
+      refresh();
     },
   });
 }
+
 
 
 async function itemForm(id) {

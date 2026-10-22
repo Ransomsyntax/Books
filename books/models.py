@@ -48,15 +48,55 @@ class Sequence(models.Model):
 
 class Party(models.Model):
     name = models.CharField(max_length=200)
+    party_type = models.CharField(max_length=20, choices=[('business', 'Business'), ('individual', 'Individual')], default='business')
+    salutation = models.CharField(max_length=20, blank=True, default='')
+    first_name = models.CharField(max_length=100, blank=True, default='')
+    last_name = models.CharField(max_length=100, blank=True, default='')
     company = models.CharField(max_length=200, blank=True)
     contact_person = models.CharField(max_length=120, blank=True)
     email = models.EmailField(blank=True)
-    phone = models.CharField(max_length=20, blank=True)
-    billing_address = models.TextField(blank=True)
+    phone = models.CharField(max_length=30, blank=True)
+    mobile = models.CharField(max_length=30, blank=True, default='')
+    language = models.CharField(max_length=30, blank=True, default='English')
+    gst_treatment = models.CharField(max_length=50, blank=True, default='registered_regular')
     state = models.CharField(max_length=60, blank=True)
     gstin = models.CharField(max_length=15, blank=True)
     pan = models.CharField(max_length=10, blank=True)
+    tax_preference = models.CharField(max_length=20, choices=[('taxable', 'Taxable'), ('exempt', 'Tax Exempt')], default='taxable')
+    currency = models.CharField(max_length=10, default='INR')
+    opening_balance = models.DecimalField(default=Decimal('0.00'), **MONEY)
     payment_terms = models.PositiveSmallIntegerField(default=30, help_text='Days')
+    payment_terms_label = models.CharField(max_length=50, blank=True, default='Due on Receipt')
+    enable_portal = models.BooleanField(default=False)
+
+    # Billing Address
+    billing_attention = models.CharField(max_length=150, blank=True, default='')
+    billing_country = models.CharField(max_length=100, blank=True, default='India')
+    billing_address_1 = models.CharField(max_length=255, blank=True, default='')
+    billing_address_2 = models.CharField(max_length=255, blank=True, default='')
+    billing_city = models.CharField(max_length=100, blank=True, default='')
+    billing_state = models.CharField(max_length=60, blank=True, default='')
+    billing_pincode = models.CharField(max_length=20, blank=True, default='')
+    billing_phone = models.CharField(max_length=30, blank=True, default='')
+    billing_fax = models.CharField(max_length=50, blank=True, default='')
+    billing_address = models.TextField(blank=True)
+
+    # Shipping Address
+    shipping_attention = models.CharField(max_length=150, blank=True, default='')
+    shipping_country = models.CharField(max_length=100, blank=True, default='India')
+    shipping_address_1 = models.CharField(max_length=255, blank=True, default='')
+    shipping_address_2 = models.CharField(max_length=255, blank=True, default='')
+    shipping_city = models.CharField(max_length=100, blank=True, default='')
+    shipping_state = models.CharField(max_length=60, blank=True, default='')
+    shipping_pincode = models.CharField(max_length=20, blank=True, default='')
+    shipping_phone = models.CharField(max_length=30, blank=True, default='')
+    shipping_fax = models.CharField(max_length=50, blank=True, default='')
+    shipping_address = models.TextField(blank=True, default='')
+
+    # Extra info
+    contact_persons = models.JSONField(default=list, blank=True)
+    custom_fields = models.JSONField(default=dict, blank=True)
+    remarks = models.TextField(blank=True, default='')
     notes = models.TextField(blank=True)
     active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -70,7 +110,7 @@ class Party(models.Model):
 
 
 class Customer(Party):
-    shipping_address = models.TextField(blank=True)
+    pass
 
 
 class Vendor(Party):
